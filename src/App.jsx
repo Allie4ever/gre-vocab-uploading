@@ -1,40 +1,116 @@
 import { useEffect, useRef, useState } from "react";
 import mammoth from "mammoth";
+import {
+  createLibrary,
+  loadLibraries,
+  persistLibraries,
+  updateLibrary,
+} from "./libraryStorage";
 import { parseVocabulary } from "./parser";
 
-function UploadView({ onUpload, loading, error }) {
+function formatUpdatedAt(value) {
+  return new Intl.DateTimeFormat("zh-CN", {
+    month: "numeric",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(new Date(value));
+}
+
+function UploadView({
+  onUpload,
+  loading,
+  error,
+  libraries,
+  onOpenLibrary,
+  onStartLibrary,
+  onDeleteLibrary,
+}) {
   const inputRef = useRef(null);
 
   return (
     <main className="upload-page">
-      <section className="upload-panel">
-        <div className="mark" aria-hidden="true">W</div>
-        <h1>极简背词</h1>
-        <p className="intro">上传 Word 单词表，马上开始。</p>
+      <div className="home-shell">
+        <section className="upload-panel">
+          <div className="mark" aria-hidden="true">W</div>
+          <h1>极简背词</h1>
+          <p className="intro">上传 Word 单词表，马上开始。</p>
 
-        <input
-          ref={inputRef}
-          className="file-input"
-          type="file"
-          accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-          onChange={(event) => onUpload(event.target.files?.[0])}
-        />
-        <button
-          className="primary-button upload-button"
-          type="button"
-          disabled={loading}
-          onClick={() => inputRef.current?.click()}
-        >
-          {loading ? "正在解析…" : "选择 .docx 文件"}
-        </button>
-        <p className="format-note">每行一个单词或词组：英文在前，中文释义在后</p>
-        {error && <p className="error-message" role="alert">{error}</p>}
-      </section>
+          <input
+            ref={inputRef}
+            className="file-input"
+            type="file"
+            accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            onChange={(event) => onUpload(event.target.files?.[0])}
+          />
+          <button
+            className="primary-button upload-button"
+            type="button"
+            disabled={loading}
+            onClick={() => inputRef.current?.click()}
+          >
+            {loading ? "正在解析…" : "选择 .docx 文件"}
+          </button>
+          <p className="format-note">每行一个单词或词组：英文在前，中文释义在后</p>
+          {error && <p className="error-message" role="alert">{error}</p>}
+        </section>
+
+        {libraries.length > 0 && (
+          <section className="library-section">
+            <div className="library-heading">
+              <h2>我的词库</h2>
+              <span>{libraries.length} 个</span>
+            </div>
+            <div className="library-list">
+              {libraries.map((library) => (
+                <article className="library-row" key={library.id}>
+                  <button
+                    className="library-main"
+                    type="button"
+                    onClick={() => onOpenLibrary(library)}
+                  >
+                    <strong>{library.name}</strong>
+                    <span>
+                      {library.words.length} 个单词 · 更新于 {formatUpdatedAt(library.updatedAt)}
+                    </span>
+                  </button>
+                  <div className="library-actions">
+                    <button type="button" onClick={() => onStartLibrary(library)}>
+                      开始背词
+                    </button>
+                    <button type="button" onClick={() => onDeleteLibrary(library)}>
+                      删除
+                    </button>
+                  </div>
+                </article>
+              ))}
+            </div>
+          </section>
+        )}
+      </div>
     </main>
   );
 }
 
-function ListView({ words, fileName, onStart, onReset }) {
+function ListView({
+  words,
+  fileName,
+  initialLibraryName,
+  canOverwrite,
+  saveMessage,
+  onNameChange,
+  onSave,
+  onOverwrite,
+  onStart,
+  onReset,
+}) {
+  const [libraryName, setLibraryName] = useState(initialLibraryName);
+
+  const handleNameChange = (event) => {
+    setLibraryName(event.target.value);
+    onNameChange(event.target.value);
+  };
+
   return (
     <main className="list-page">
       <header className="list-header">
@@ -45,6 +121,35 @@ function ListView({ words, fileName, onStart, onReset }) {
         </div>
         <button className="text-button" type="button" onClick={onReset}>重新上传</button>
       </header>
+
+      <section className="save-panel" aria-label="保存词库">
+        <label htmlFor="library-name">词库名称</label>
+        <input
+          id="library-name"
+          type="text"
+          value={libraryName}
+          maxLength={60}
+          placeholder="例如：GRE 高频词"
+          onChange={handleNameChange}
+        />
+        <div className="save-actions">
+          <button className="secondary-button" type="button" onClick={() => onSave(libraryName)}>
+            保存为词库
+          </button>
+          <button
+            className="secondary-button"
+            type="button"
+            disabled={!canOverwrite}
+            onClick={() => onOverwrite(libraryName)}
+          >
+            覆盖已有词库
+          </button>
+          <button className="primary-button compact-button" type="button" onClick={onStart}>
+            开始快速背词
+          </button>
+        </div>
+        {saveMessage && <p className="save-message" role="status">{saveMessage}</p>}
+      </section>
 
       <section className="word-list" aria-label="单词列表">
         {words.map((item, index) => (
@@ -57,12 +162,6 @@ function ListView({ words, fileName, onStart, onReset }) {
           </article>
         ))}
       </section>
-
-      <div className="start-bar">
-        <button className="primary-button" type="button" onClick={onStart}>
-          开始快速背词
-        </button>
-      </div>
     </main>
   );
 }
@@ -229,6 +328,10 @@ export default function App() {
   const [view, setView] = useState("upload");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [libraries, setLibraries] = useState(() => loadLibraries());
+  const [currentLibraryId, setCurrentLibraryId] = useState(null);
+  const [draftLibraryName, setDraftLibraryName] = useState("");
+  const [saveMessage, setSaveMessage] = useState("");
 
   const handleUpload = async (file) => {
     if (!file) return;
@@ -251,6 +354,9 @@ export default function App() {
 
       setWords(parsedWords);
       setFileName(file.name);
+      setCurrentLibraryId(null);
+      setDraftLibraryName("");
+      setSaveMessage("");
       setView("list");
     } catch (uploadError) {
       setError(uploadError.message || "文档解析失败，请换一个文件重试。");
@@ -263,8 +369,91 @@ export default function App() {
     setWords([]);
     setFileName("");
     setError("");
+    setCurrentLibraryId(null);
+    setDraftLibraryName("");
+    setSaveMessage("");
     setView("upload");
   };
+
+  const commitLibraries = (nextLibraries) => {
+    try {
+      persistLibraries(nextLibraries);
+      setLibraries(nextLibraries);
+      return true;
+    } catch {
+      setSaveMessage("保存失败：浏览器本地存储空间不足或不可用。");
+      return false;
+    }
+  };
+
+  const openLibrary = (library, startImmediately = false) => {
+    setWords(library.words);
+    setFileName("已保存词库");
+    setCurrentLibraryId(library.id);
+    setDraftLibraryName(library.name);
+    setSaveMessage("");
+    setView(startImmediately ? "study" : "list");
+  };
+
+  const saveCurrentLibrary = (name, forceOverwrite = false) => {
+    const trimmedName = name.trim();
+    if (!trimmedName) {
+      setSaveMessage("请先输入词库名称。");
+      return;
+    }
+
+    const sameNameLibrary = libraries.find(
+      (library) => library.name.trim() === trimmedName,
+    );
+    const currentLibrary = libraries.find(
+      (library) => library.id === currentLibraryId,
+    );
+    const overwriteTarget = sameNameLibrary || (forceOverwrite ? currentLibrary : null);
+
+    if (forceOverwrite && !overwriteTarget) {
+      setSaveMessage("没有找到可覆盖的词库，请先用该名称保存。");
+      return;
+    }
+
+    if (overwriteTarget) {
+      const confirmed = window.confirm(`“${overwriteTarget.name}”已经存在，确定覆盖吗？`);
+      if (!confirmed) {
+        setSaveMessage("未覆盖，请修改名称后再保存。");
+        return;
+      }
+
+      const updated = updateLibrary(overwriteTarget, trimmedName, words);
+      const nextLibraries = libraries
+        .map((library) => (library.id === updated.id ? updated : library))
+        .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+
+      if (commitLibraries(nextLibraries)) {
+        setCurrentLibraryId(updated.id);
+        setDraftLibraryName(updated.name);
+        setSaveMessage(`已覆盖“${updated.name}”。`);
+      }
+      return;
+    }
+
+    const created = createLibrary(trimmedName, words);
+    const nextLibraries = [created, ...libraries];
+    if (commitLibraries(nextLibraries)) {
+      setCurrentLibraryId(created.id);
+      setDraftLibraryName(created.name);
+      setSaveMessage(`已保存“${created.name}”。`);
+    }
+  };
+
+  const deleteLibrary = (library) => {
+    const confirmed = window.confirm(`确定删除词库“${library.name}”吗？`);
+    if (!confirmed) return;
+    commitLibraries(libraries.filter((item) => item.id !== library.id));
+  };
+
+  const overwriteTargetExists = Boolean(
+    libraries.find((library) => library.id === currentLibraryId)
+    || libraries.find((library) => library.name.trim() === draftLibraryName.trim()),
+  );
 
   if (view === "study" && words.length) {
     return (
@@ -281,11 +470,30 @@ export default function App() {
       <ListView
         words={words}
         fileName={fileName}
+        initialLibraryName={draftLibraryName}
+        canOverwrite={overwriteTargetExists}
+        saveMessage={saveMessage}
+        onNameChange={(name) => {
+          setDraftLibraryName(name);
+          setSaveMessage("");
+        }}
+        onSave={(name) => saveCurrentLibrary(name, false)}
+        onOverwrite={(name) => saveCurrentLibrary(name, true)}
         onStart={() => setView("study")}
         onReset={reset}
       />
     );
   }
 
-  return <UploadView onUpload={handleUpload} loading={loading} error={error} />;
+  return (
+    <UploadView
+      onUpload={handleUpload}
+      loading={loading}
+      error={error}
+      libraries={libraries}
+      onOpenLibrary={(library) => openLibrary(library, false)}
+      onStartLibrary={(library) => openLibrary(library, true)}
+      onDeleteLibrary={deleteLibrary}
+    />
+  );
 }
