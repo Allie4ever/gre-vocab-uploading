@@ -628,6 +628,53 @@ p {
   color: #aaa;
 }
 
+.mastery-hint {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin-top: 13px;
+  color: #9ca3af;
+  pointer-events: none;
+}
+
+.mastery-chevrons {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  animation: mastery-hint-drift 2s ease-in-out infinite;
+}
+
+.mastery-chevrons svg {
+  display: block;
+  overflow: visible;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.mastery-chevrons svg:nth-child(1) {
+  opacity: 0.15;
+}
+
+.mastery-chevrons svg:nth-child(2) {
+  opacity: 0.25;
+}
+
+.mastery-chevrons svg:nth-child(3) {
+  opacity: 0.4;
+}
+
+.mastery-hint p {
+  margin: 8px 0 0;
+  font-size: 11px;
+  font-weight: 400;
+  letter-spacing: 0.01em;
+  line-height: 1;
+  text-align: center;
+}
+
 @keyframes word-fade {
   from {
     opacity: 0;
@@ -635,6 +682,19 @@ p {
 
   to {
     opacity: 1;
+  }
+}
+
+@keyframes mastery-hint-drift {
+  0%,
+  100% {
+    opacity: 0.88;
+    transform: translateY(1px);
+  }
+
+  50% {
+    opacity: 1;
+    transform: translateY(-2px);
   }
 }
 
@@ -702,6 +762,7 @@ p {
   .progress-track span,
   .card-stage,
   .star-button,
+  .mastery-chevrons,
   .mode-options > button {
     transition: none;
     animation: none;

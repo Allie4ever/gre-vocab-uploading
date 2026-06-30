@@ -545,6 +545,22 @@ function StudyView({
           <strong>{completedCount + index + 1}</strong>
           <span> / {initialTotal.current}</span>
         </p>
+        <div className="mastery-hint">
+          <div className="mastery-chevrons" aria-hidden="true">
+            {[0, 1, 2].map((item) => (
+              <svg
+                key={item}
+                viewBox="0 0 24 8"
+                width="24"
+                height="8"
+                focusable="false"
+              >
+                <path d="M3 6 L12 2 L21 6" />
+              </svg>
+            ))}
+          </div>
+          <p>向上滑动即可掌握</p>
+        </div>
       </footer>
     </main>
   );
