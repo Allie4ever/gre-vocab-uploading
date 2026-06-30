@@ -628,10 +628,6 @@ p {
   color: #aaa;
 }
 
-.desktop-nav {
-  display: none;
-}
-
 @keyframes word-fade {
   from {
     opacity: 0;
@@ -692,21 +688,6 @@ p {
 }
 
 @media (min-width: 768px) and (hover: hover) and (pointer: fine) {
-  .desktop-nav {
-    position: fixed;
-    top: 50%;
-    display: flex;
-    align-items: center;
-    gap: 7px;
-    padding: 12px;
-    border: 0;
-    color: #aaa;
-    background: transparent;
-    font-size: 13px;
-    transform: translateY(-50%);
-    cursor: pointer;
-  }
-
   .star-button:hover {
     transform: scale(1.08);
   }
@@ -715,30 +696,6 @@ p {
     transform: scale(1.15);
   }
 
-  .desktop-nav:hover {
-    color: #333;
-    background: #f7f7f7;
-  }
-
-  .desktop-nav:disabled {
-    opacity: 0.25;
-    cursor: default;
-    background: transparent;
-  }
-
-  .desktop-nav span {
-    font-size: 28px;
-    font-weight: 300;
-    line-height: 1;
-  }
-
-  .desktop-nav-previous {
-    left: 24px;
-  }
-
-  .desktop-nav-next {
-    right: 24px;
-  }
 }
 
 @media (prefers-reduced-motion: reduce) {

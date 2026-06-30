@@ -277,7 +277,6 @@ function StudyView({
   const lastTouchY = useRef(null);
   const directionLock = useRef(null);
   const didSwipe = useRef(false);
-  const lastWheelAt = useRef(0);
   const starAnimationTimer = useRef(null);
   const starAnimationFrame = useRef(null);
   const masterAnimationTimer = useRef(null);
@@ -316,10 +315,6 @@ function StudyView({
       if (event.key === " ") {
         event.preventDefault();
         setRevealed((value) => !value);
-      }
-      if (event.key === "Enter") {
-        event.preventDefault();
-        goTo(index + 1);
       }
       if (event.key === "Escape") {
         event.preventDefault();
@@ -467,13 +462,7 @@ function StudyView({
     }
     if (isMastering) return;
     if (event.target.closest("button")) return;
-    if (event.target.closest(".study-header, .study-footer")) return;
-
-    if (event.clientX >= window.innerWidth / 2) {
-      goTo(index + 1);
-    } else {
-      goTo(index - 1);
-    }
+    setRevealed((value) => !value);
   };
 
   const handleToggleStar = () => {
@@ -489,22 +478,10 @@ function StudyView({
     });
   };
 
-  const handleWheel = (event) => {
-    if (isMastering) return;
-    if (Math.abs(event.deltaY) < 8) return;
-    const now = Date.now();
-    if (now - lastWheelAt.current < 350) return;
-    lastWheelAt.current = now;
-
-    if (event.deltaY > 0) goTo(index + 1);
-    if (event.deltaY < 0) goTo(index - 1);
-  };
-
   return (
     <main
       className="study-page"
       onClick={handlePageClick}
-      onWheel={handleWheel}
       onTouchStart={handleTouchStart}
       onTouchMove={handleTouchMove}
       onTouchEnd={handleTouchEnd}
@@ -518,25 +495,6 @@ function StudyView({
           重新上传
         </button>
       </header>
-
-      <button
-        className="desktop-nav desktop-nav-previous"
-        type="button"
-        disabled={index === 0}
-        onClick={() => goTo(index - 1)}
-        aria-label="上一个单词"
-      >
-        <span aria-hidden="true">‹</span> 上一个
-      </button>
-      <button
-        className="desktop-nav desktop-nav-next"
-        type="button"
-        disabled={index === words.length - 1}
-        onClick={() => goTo(index + 1)}
-        aria-label="下一个单词"
-      >
-        下一个 <span aria-hidden="true">›</span>
-      </button>
 
       <section
         className={`card-stage${isMastering ? " is-mastering" : ""}`}
