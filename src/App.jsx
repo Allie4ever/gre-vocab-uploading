@@ -37,11 +37,6 @@ function AccountPanel({
   session,
   busy,
   message,
-  hasLocalLibraries,
-  migrationStrategy,
-  onMigrationStrategyChange,
-  onMigrate,
-  onKeepLocal,
   onSignIn,
   onSignUp,
   onSignOut,
@@ -61,40 +56,10 @@ function AccountPanel({
 
   if (session) {
     return (
-      <aside className="account-panel">
-        <div className="account-line">
-          <span>{session.user.email}</span>
-          <button type="button" disabled={busy} onClick={onSignOut}>登出</button>
-        </div>
-        {hasLocalLibraries && (
-          <div className="migration-panel">
-            <p>检测到本地词库，是否上传到云端？</p>
-            <div className="migration-strategies" aria-label="重名词库处理方式">
-              {[
-                ["skip", "跳过"],
-                ["overwrite", "覆盖"],
-                ["rename", "重命名"],
-              ].map(([value, label]) => (
-                <button
-                  className={migrationStrategy === value ? "is-selected" : ""}
-                  key={value}
-                  type="button"
-                  onClick={() => onMigrationStrategyChange(value)}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-            <div className="migration-actions">
-              <button type="button" disabled={busy} onClick={onMigrate}>
-                上传到云端
-              </button>
-              <button type="button" onClick={onKeepLocal}>暂时保留本地</button>
-            </div>
-          </div>
-        )}
-        {message && <small role="status">{message}</small>}
-      </aside>
+      <div className="account-status">
+        <span>已登录：{session.user.email}</span>
+        <button type="button" disabled={busy} onClick={onSignOut}>退出登录</button>
+      </div>
     );
   }
 
@@ -148,6 +113,45 @@ function AccountPanel({
   );
 }
 
+function MigrationNotice({
+  hasConflicts,
+  strategy,
+  busy,
+  onStrategyChange,
+  onMigrate,
+  onDismiss,
+}) {
+  return (
+    <aside className="migration-notice">
+      <p>检测到本地词库，可上传到云端以多设备同步。</p>
+      {hasConflicts && (
+        <div className="migration-strategies" aria-label="重名词库处理方式">
+          {[
+            ["overwrite", "覆盖"],
+            ["skip", "跳过"],
+            ["rename", "重命名"],
+          ].map(([value, label]) => (
+            <button
+              className={strategy === value ? "is-selected" : ""}
+              key={value}
+              type="button"
+              onClick={() => onStrategyChange(value)}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      )}
+      <div className="migration-actions">
+        <button type="button" disabled={busy} onClick={onMigrate}>
+          上传到云端
+        </button>
+        <button type="button" onClick={onDismiss}>暂不上传</button>
+      </div>
+    </aside>
+  );
+}
+
 function UploadView({
   onUpload,
   loading,
@@ -157,6 +161,7 @@ function UploadView({
   onStartLibrary,
   onDeleteLibrary,
   accountPanel,
+  migrationNotice,
 }) {
   const inputRef = useRef(null);
 
@@ -188,6 +193,7 @@ function UploadView({
           {error && <p className="error-message" role="alert">{error}</p>}
         </section>
 
+        {migrationNotice}
         {libraries.length > 0 && (
           <section className="library-section">
             <div className="library-heading">
@@ -717,6 +723,11 @@ export default function App() {
   const [migrationDismissed, setMigrationDismissed] = useState(false);
   const isCloudMode = Boolean(session && supabase);
   const localLibraries = loadLibraries();
+  const hasMigrationConflicts = localLibraries.some((localLibrary) => (
+    libraries.some(
+      (cloudLibrary) => cloudLibrary.name.trim() === localLibrary.name.trim(),
+    )
+  ));
 
   useEffect(() => {
     if (!supabase) return undefined;
@@ -727,6 +738,7 @@ export default function App() {
     });
     const { data } = supabase.auth.onAuthStateChange((event, nextSession) => {
       setSession(nextSession);
+      if (event === "SIGNED_IN") setView("upload");
       if (event === "SIGNED_OUT") setMigrationDismissed(false);
     });
     return () => data.subscription.unsubscribe();
@@ -1190,20 +1202,25 @@ export default function App() {
           session={session}
           busy={cloudBusy}
           message={accountMessage}
-          hasLocalLibraries={
-            Boolean(session)
-            && localLibraries.length > 0
-            && !migrationDismissed
-          }
-          migrationStrategy={migrationStrategy}
-          onMigrationStrategyChange={setMigrationStrategy}
-          onMigrate={migrateLocalLibraries}
-          onKeepLocal={() => setMigrationDismissed(true)}
           onSignIn={handleSignIn}
           onSignUp={handleSignUp}
           onSignOut={handleSignOut}
         />
       )}
+      migrationNotice={
+        session && localLibraries.length > 0 && !migrationDismissed
+          ? (
+              <MigrationNotice
+                hasConflicts={hasMigrationConflicts}
+                strategy={migrationStrategy}
+                busy={cloudBusy}
+                onStrategyChange={setMigrationStrategy}
+                onMigrate={migrateLocalLibraries}
+                onDismiss={() => setMigrationDismissed(true)}
+              />
+            )
+          : null
+      }
     />
   );
 }
