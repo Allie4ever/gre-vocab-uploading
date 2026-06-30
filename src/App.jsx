@@ -70,9 +70,11 @@ function UploadView({
                     onClick={() => onOpenLibrary(library)}
                   >
                     <strong>{library.name}</strong>
-                    <span>
-                      {library.words.length} 个单词 · 更新于 {formatUpdatedAt(library.updatedAt)}
+                    <span>{library.words.length} 个单词</span>
+                    <span className="library-star-count">
+                      ★ {library.starredWordIds.length} 个重点词
                     </span>
+                    <span>更新于 {formatUpdatedAt(library.updatedAt)}</span>
                   </button>
                   <div className="library-actions">
                     <button type="button" onClick={() => onStartLibrary(library)}>
@@ -166,17 +168,62 @@ function ListView({
   );
 }
 
-function StudyView({ words, onExit, onReset }) {
+function StudyModeView({ wordCount, starredCount, onSelect, onBack }) {
+  return (
+    <main className="mode-page">
+      <section className="mode-panel" aria-labelledby="mode-title">
+        <button className="mode-back" type="button" onClick={onBack}>
+          ← 返回列表
+        </button>
+        <p className="eyebrow">快速背词</p>
+        <h1 id="mode-title">选择学习模式</h1>
+        <p className="mode-intro">这次想复习哪些单词？</p>
+
+        <div className="mode-options">
+          <button type="button" onClick={() => onSelect("all")}>
+            <span className="mode-radio" aria-hidden="true" />
+            <span>
+              <strong>全部单词</strong>
+              <small>{wordCount} 个单词</small>
+            </span>
+          </button>
+          <button
+            type="button"
+            disabled={starredCount === 0}
+            onClick={() => onSelect("starred")}
+          >
+            <span className="mode-radio" aria-hidden="true" />
+            <span>
+              <strong><span className="mode-star" aria-hidden="true">★</span> 仅重点词</strong>
+              <small>
+                {starredCount > 0 ? `${starredCount} 个已星标单词` : "还没有星标单词"}
+              </small>
+            </span>
+          </button>
+        </div>
+      </section>
+    </main>
+  );
+}
+
+function StudyView({ words, starredWordIds, onToggleStar, onExit, onReset }) {
   const [index, setIndex] = useState(0);
   const [revealed, setRevealed] = useState(false);
+  const [starAnimating, setStarAnimating] = useState(false);
   const startX = useRef(null);
   const didSwipe = useRef(false);
   const lastWheelAt = useRef(0);
+  const starAnimationTimer = useRef(null);
+  const starAnimationFrame = useRef(null);
   const current = words[index];
+  const isStarred = starredWordIds.includes(current.id);
 
   const goTo = (nextIndex) => {
     const boundedIndex = Math.max(0, Math.min(words.length - 1, nextIndex));
     if (boundedIndex !== index) {
+      window.cancelAnimationFrame(starAnimationFrame.current);
+      window.clearTimeout(starAnimationTimer.current);
+      setStarAnimating(false);
       setIndex(boundedIndex);
       setRevealed(false);
     }
@@ -210,6 +257,11 @@ function StudyView({ words, onExit, onReset }) {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [index, onExit]);
 
+  useEffect(() => () => {
+    window.cancelAnimationFrame(starAnimationFrame.current);
+    window.clearTimeout(starAnimationTimer.current);
+  }, []);
+
   const handlePointerDown = (event) => {
     if (
       event.pointerType !== "touch"
@@ -230,9 +282,8 @@ function StudyView({ words, onExit, onReset }) {
 
     if (Math.abs(distance) < 50) return;
     didSwipe.current = true;
-    // Follow the requested gesture: swipe right for next, swipe left for previous.
-    if (distance > 0) goTo(index + 1);
-    if (distance < 0) goTo(index - 1);
+    if (distance < 0) goTo(index + 1);
+    if (distance > 0) goTo(index - 1);
   };
 
   const handlePageClick = (event) => {
@@ -241,12 +292,26 @@ function StudyView({ words, onExit, onReset }) {
       return;
     }
     if (event.target.closest("button")) return;
-    if (
-      event.target.closest(
-        ".study-word, .study-meaning, .study-header, .study-footer",
-      )
-    ) return;
-    setRevealed((value) => !value);
+    if (event.target.closest(".study-header, .study-footer")) return;
+
+    if (event.clientX >= window.innerWidth / 2) {
+      goTo(index + 1);
+    } else {
+      goTo(index - 1);
+    }
+  };
+
+  const handleToggleStar = () => {
+    onToggleStar(current.id);
+    setStarAnimating(false);
+    window.clearTimeout(starAnimationTimer.current);
+    starAnimationFrame.current = window.requestAnimationFrame(() => {
+      setStarAnimating(true);
+      starAnimationTimer.current = window.setTimeout(
+        () => setStarAnimating(false),
+        180,
+      );
+    });
   };
 
   const handleWheel = (event) => {
@@ -263,7 +328,6 @@ function StudyView({ words, onExit, onReset }) {
     <main
       className="study-page"
       onClick={handlePageClick}
-      onDoubleClick={() => setRevealed(true)}
       onWheel={handleWheel}
       onPointerDown={handlePointerDown}
       onPointerUp={handlePointerUp}
@@ -298,6 +362,15 @@ function StudyView({ words, onExit, onReset }) {
       </button>
 
       <section className="card-stage" key={index} aria-live="polite">
+        <button
+          className={`star-button${isStarred ? " is-starred" : ""}${starAnimating ? " is-animating" : ""}`}
+          type="button"
+          aria-label={isStarred ? `取消星标 ${current.word}` : `星标 ${current.word}`}
+          aria-pressed={isStarred}
+          onClick={handleToggleStar}
+        >
+          <span aria-hidden="true">{isStarred ? "★" : "☆"}</span>
+        </button>
         <p className="study-word">{current.word}</p>
         <div className="meaning-slot">
           {revealed ? (
@@ -331,6 +404,8 @@ export default function App() {
   const [libraries, setLibraries] = useState(() => loadLibraries());
   const [currentLibraryId, setCurrentLibraryId] = useState(null);
   const [draftLibraryName, setDraftLibraryName] = useState("");
+  const [starredWordIds, setStarredWordIds] = useState([]);
+  const [studyWords, setStudyWords] = useState([]);
   const [saveMessage, setSaveMessage] = useState("");
 
   const handleUpload = async (file) => {
@@ -356,6 +431,8 @@ export default function App() {
       setFileName(file.name);
       setCurrentLibraryId(null);
       setDraftLibraryName("");
+      setStarredWordIds([]);
+      setStudyWords([]);
       setSaveMessage("");
       setView("list");
     } catch (uploadError) {
@@ -371,6 +448,8 @@ export default function App() {
     setError("");
     setCurrentLibraryId(null);
     setDraftLibraryName("");
+    setStarredWordIds([]);
+    setStudyWords([]);
     setSaveMessage("");
     setView("upload");
   };
@@ -391,8 +470,10 @@ export default function App() {
     setFileName("已保存词库");
     setCurrentLibraryId(library.id);
     setDraftLibraryName(library.name);
+    setStarredWordIds(library.starredWordIds);
+    setStudyWords([]);
     setSaveMessage("");
-    setView(startImmediately ? "study" : "list");
+    setView(startImmediately ? "mode" : "list");
   };
 
   const saveCurrentLibrary = (name, forceOverwrite = false) => {
@@ -422,7 +503,11 @@ export default function App() {
         return;
       }
 
-      const updated = updateLibrary(overwriteTarget, trimmedName, words);
+      const wordIds = new Set(words.map((word) => word.id));
+      const updated = {
+        ...updateLibrary(overwriteTarget, trimmedName, words),
+        starredWordIds: starredWordIds.filter((id) => wordIds.has(id)),
+      };
       const nextLibraries = libraries
         .map((library) => (library.id === updated.id ? updated : library))
         .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
@@ -435,7 +520,10 @@ export default function App() {
       return;
     }
 
-    const created = createLibrary(trimmedName, words);
+    const created = {
+      ...createLibrary(trimmedName, words),
+      starredWordIds,
+    };
     const nextLibraries = [created, ...libraries];
     if (commitLibraries(nextLibraries)) {
       setCurrentLibraryId(created.id);
@@ -455,12 +543,55 @@ export default function App() {
     || libraries.find((library) => library.name.trim() === draftLibraryName.trim()),
   );
 
-  if (view === "study" && words.length) {
+  const toggleStar = (wordId) => {
+    const nextStarredWordIds = starredWordIds.includes(wordId)
+      ? starredWordIds.filter((id) => id !== wordId)
+      : [...starredWordIds, wordId];
+
+    if (!currentLibraryId) {
+      setStarredWordIds(nextStarredWordIds);
+      return;
+    }
+
+    const nextLibraries = libraries.map((library) => (
+      library.id === currentLibraryId
+        ? { ...library, starredWordIds: nextStarredWordIds }
+        : library
+    ));
+    if (commitLibraries(nextLibraries)) {
+      setStarredWordIds(nextStarredWordIds);
+    }
+  };
+
+  const startStudy = (mode) => {
+    const selectedWords = mode === "starred"
+      ? words.filter((word) => starredWordIds.includes(word.id))
+      : words;
+
+    if (!selectedWords.length) return;
+    setStudyWords(selectedWords);
+    setView("study");
+  };
+
+  if (view === "study" && studyWords.length) {
     return (
       <StudyView
-        words={words}
+        words={studyWords}
+        starredWordIds={starredWordIds}
+        onToggleStar={toggleStar}
         onExit={() => setView("list")}
         onReset={reset}
+      />
+    );
+  }
+
+  if (view === "mode" && words.length) {
+    return (
+      <StudyModeView
+        wordCount={words.length}
+        starredCount={starredWordIds.length}
+        onSelect={startStudy}
+        onBack={() => setView("list")}
       />
     );
   }
@@ -479,7 +610,7 @@ export default function App() {
         }}
         onSave={(name) => saveCurrentLibrary(name, false)}
         onOverwrite={(name) => saveCurrentLibrary(name, true)}
-        onStart={() => setView("study")}
+        onStart={() => setView("mode")}
         onReset={reset}
       />
     );

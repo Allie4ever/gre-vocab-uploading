@@ -168,8 +168,13 @@ p {
 }
 
 .library-main span {
+  margin-top: 3px;
   color: #888;
   font-size: 12px;
+}
+
+.library-main .library-star-count {
+  color: #777;
 }
 
 .library-actions {
@@ -342,6 +347,105 @@ p {
   line-height: 1.6;
 }
 
+.mode-page {
+  min-height: 100dvh;
+  display: grid;
+  place-items: center;
+  padding:
+    max(32px, env(safe-area-inset-top))
+    22px
+    max(32px, env(safe-area-inset-bottom));
+}
+
+.mode-panel {
+  width: min(100%, 440px);
+}
+
+.mode-back {
+  margin-bottom: 48px;
+  padding: 5px 0;
+  border: 0;
+  color: #666;
+  background: transparent;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.mode-panel h1 {
+  margin-bottom: 10px;
+  font-size: clamp(30px, 8vw, 40px);
+  letter-spacing: -0.04em;
+}
+
+.mode-intro {
+  margin-bottom: 34px;
+  color: #888;
+  font-size: 15px;
+}
+
+.mode-options {
+  display: grid;
+  gap: 10px;
+}
+
+.mode-options > button {
+  width: 100%;
+  min-height: 78px;
+  display: grid;
+  grid-template-columns: 20px 1fr;
+  align-items: center;
+  gap: 16px;
+  padding: 15px 18px;
+  border: 1px solid #dedede;
+  border-radius: 14px;
+  color: #171717;
+  background: #fff;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    border-color 160ms ease,
+    background-color 160ms ease,
+    transform 160ms ease;
+}
+
+.mode-options > button:hover {
+  border-color: #aaa;
+  background: #fafafa;
+  transform: scale(1.01);
+}
+
+.mode-options > button:disabled {
+  opacity: 0.45;
+  cursor: default;
+  transform: none;
+}
+
+.mode-options strong,
+.mode-options small {
+  display: block;
+}
+
+.mode-options strong {
+  margin-bottom: 5px;
+  font-size: 15px;
+}
+
+.mode-options small {
+  color: #999;
+  font-size: 12px;
+}
+
+.mode-radio {
+  width: 18px;
+  height: 18px;
+  border: 1.5px solid #aaa;
+  border-radius: 50%;
+}
+
+.mode-star {
+  color: #f5b301;
+}
+
 .study-page {
   min-height: 100dvh;
   display: grid;
@@ -386,6 +490,38 @@ p {
   padding: 48px 8px;
   text-align: center;
   animation: word-fade 150ms ease-out;
+}
+
+.star-button {
+  width: 38px;
+  height: 38px;
+  display: grid;
+  place-items: center;
+  margin: 0 0 18px;
+  padding: 0;
+  border: 0;
+  color: #9ca3af;
+  background: transparent;
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+  transform: scale(1);
+  transition:
+    color 180ms ease,
+    transform 180ms ease;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.star-button.is-starred {
+  color: #f5b301;
+}
+
+.star-button.is-animating {
+  transform: scale(1.15);
+}
+
+.star-button:active {
+  transform: scale(1.15);
 }
 
 .study-word {
@@ -538,6 +674,14 @@ p {
     cursor: pointer;
   }
 
+  .star-button:hover {
+    transform: scale(1.08);
+  }
+
+  .star-button.is-animating:hover {
+    transform: scale(1.15);
+  }
+
   .desktop-nav:hover {
     color: #333;
     background: #f7f7f7;
@@ -566,7 +710,9 @@ p {
 
 @media (prefers-reduced-motion: reduce) {
   .progress-track span,
-  .card-stage {
+  .card-stage,
+  .star-button,
+  .mode-options > button {
     transition: none;
     animation: none;
   }

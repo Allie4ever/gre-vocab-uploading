@@ -36,6 +36,7 @@ test("overwriting preserves creation time and updates content", () => {
     id: "library-1",
     name: "旧名称",
     words: [],
+    starredWordIds: ["word-0", "removed-word"],
     createdAt: "2026-06-28T00:00:00.000Z",
     updatedAt: "2026-06-28T00:00:00.000Z",
   };
@@ -49,4 +50,18 @@ test("overwriting preserves creation time and updates content", () => {
   assert.equal(updated.createdAt, original.createdAt);
   assert.equal(updated.updatedAt, "2026-06-29T00:00:00.000Z");
   assert.equal(updated.words.length, 1);
+  assert.deepEqual(updated.starredWordIds, ["word-0"]);
+});
+
+test("adds an empty star list when loading older libraries", () => {
+  const legacyLibrary = {
+    id: "library-1",
+    name: "旧词库",
+    words: [],
+    createdAt: "2026-06-28T00:00:00.000Z",
+    updatedAt: "2026-06-28T00:00:00.000Z",
+  };
+  const storage = makeStorage(JSON.stringify([legacyLibrary]));
+
+  assert.deepEqual(loadLibraries(storage)[0].starredWordIds, []);
 });
