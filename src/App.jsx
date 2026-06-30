@@ -211,6 +211,9 @@ function StudyView({ words, starredWordIds, onToggleStar, onExit, onReset }) {
   const [revealed, setRevealed] = useState(false);
   const [starAnimating, setStarAnimating] = useState(false);
   const startX = useRef(null);
+  const startY = useRef(null);
+  const lastTouchX = useRef(null);
+  const lastTouchY = useRef(null);
   const didSwipe = useRef(false);
   const lastWheelAt = useRef(0);
   const starAnimationTimer = useRef(null);
@@ -231,11 +234,13 @@ function StudyView({ words, starredWordIds, onToggleStar, onExit, onReset }) {
 
   useEffect(() => {
     const handleKeyDown = (event) => {
-      if (event.key === "ArrowRight") {
+      const key = event.key.toLowerCase();
+
+      if (key === "arrowright" || key === "d") {
         event.preventDefault();
         goTo(index + 1);
       }
-      if (event.key === "ArrowLeft") {
+      if (key === "arrowleft" || key === "a") {
         event.preventDefault();
         goTo(index - 1);
       }
@@ -262,28 +267,51 @@ function StudyView({ words, starredWordIds, onToggleStar, onExit, onReset }) {
     window.clearTimeout(starAnimationTimer.current);
   }, []);
 
-  const handlePointerDown = (event) => {
-    if (
-      event.pointerType !== "touch"
-      || window.matchMedia("(min-width: 768px)").matches
-    ) return;
-    startX.current = event.clientX;
+  const resetTouch = () => {
+    startX.current = null;
+    startY.current = null;
+    lastTouchX.current = null;
+    lastTouchY.current = null;
+  };
+
+  const handleTouchStart = (event) => {
+    if (event.touches.length !== 1) {
+      resetTouch();
+      return;
+    }
+
+    const touch = event.touches[0];
+    startX.current = touch.clientX;
+    startY.current = touch.clientY;
+    lastTouchX.current = touch.clientX;
+    lastTouchY.current = touch.clientY;
     didSwipe.current = false;
   };
 
-  const handlePointerUp = (event) => {
-    if (
-      event.pointerType !== "touch"
-      || window.matchMedia("(min-width: 768px)").matches
-    ) return;
-    if (startX.current === null) return;
-    const distance = event.clientX - startX.current;
-    startX.current = null;
+  const handleTouchMove = (event) => {
+    if (startX.current === null || event.touches.length !== 1) return;
+    lastTouchX.current = event.touches[0].clientX;
+    lastTouchY.current = event.touches[0].clientY;
+  };
 
-    if (Math.abs(distance) < 50) return;
+  const handleTouchEnd = (event) => {
+    if (startX.current === null || startY.current === null) return;
+
+    const touch = event.changedTouches[0];
+    const endX = touch?.clientX ?? lastTouchX.current;
+    const endY = touch?.clientY ?? lastTouchY.current;
+    const distanceX = endX - startX.current;
+    const distanceY = endY - startY.current;
+    resetTouch();
+
+    if (
+      Math.abs(distanceX) < 50
+      || Math.abs(distanceX) <= Math.abs(distanceY)
+    ) return;
+
     didSwipe.current = true;
-    if (distance < 0) goTo(index + 1);
-    if (distance > 0) goTo(index - 1);
+    if (distanceX < 0) goTo(index + 1);
+    if (distanceX > 0) goTo(index - 1);
   };
 
   const handlePageClick = (event) => {
@@ -329,9 +357,10 @@ function StudyView({ words, starredWordIds, onToggleStar, onExit, onReset }) {
       className="study-page"
       onClick={handlePageClick}
       onWheel={handleWheel}
-      onPointerDown={handlePointerDown}
-      onPointerUp={handlePointerUp}
-      onPointerCancel={() => { startX.current = null; }}
+      onTouchStart={handleTouchStart}
+      onTouchMove={handleTouchMove}
+      onTouchEnd={handleTouchEnd}
+      onTouchCancel={resetTouch}
     >
       <header className="study-header">
         <button className="header-button" type="button" onClick={onExit}>
