@@ -1,11 +1,20 @@
 import { useEffect, useRef, useState } from "react";
 import mammoth from "mammoth";
 import {
+  createCloudLibrary,
+  deleteCloudLibrary,
+  fetchCloudLibraries,
+  replaceCloudLibrary,
+  saveCloudProgress,
+  updateCloudWord,
+} from "./cloudStorage";
+import {
   createLibrary,
   loadLibraries,
   persistLibraries,
   updateLibrary,
 } from "./libraryStorage";
+import { isSupabaseConfigured, supabase } from "./lib/supabase";
 import { parseVocabulary } from "./parser";
 
 function formatUpdatedAt(value) {
@@ -24,6 +33,121 @@ function countMastered(words) {
   );
 }
 
+function AccountPanel({
+  session,
+  busy,
+  message,
+  hasLocalLibraries,
+  migrationStrategy,
+  onMigrationStrategyChange,
+  onMigrate,
+  onKeepLocal,
+  onSignIn,
+  onSignUp,
+  onSignOut,
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+
+  if (!isSupabaseConfigured) {
+    return (
+      <aside className="account-panel">
+        <span>本地模式</span>
+        <small>配置 Supabase 后可在多设备同步词库</small>
+      </aside>
+    );
+  }
+
+  if (session) {
+    return (
+      <aside className="account-panel">
+        <div className="account-line">
+          <span>{session.user.email}</span>
+          <button type="button" disabled={busy} onClick={onSignOut}>登出</button>
+        </div>
+        {hasLocalLibraries && (
+          <div className="migration-panel">
+            <p>检测到本地词库，是否上传到云端？</p>
+            <div className="migration-strategies" aria-label="重名词库处理方式">
+              {[
+                ["skip", "跳过"],
+                ["overwrite", "覆盖"],
+                ["rename", "重命名"],
+              ].map(([value, label]) => (
+                <button
+                  className={migrationStrategy === value ? "is-selected" : ""}
+                  key={value}
+                  type="button"
+                  onClick={() => onMigrationStrategyChange(value)}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            <div className="migration-actions">
+              <button type="button" disabled={busy} onClick={onMigrate}>
+                上传到云端
+              </button>
+              <button type="button" onClick={onKeepLocal}>暂时保留本地</button>
+            </div>
+          </div>
+        )}
+        {message && <small role="status">{message}</small>}
+      </aside>
+    );
+  }
+
+  return (
+    <aside className="account-panel">
+      <div className="account-line">
+        <span>登录后可在多设备同步词库</span>
+        <button type="button" onClick={() => setExpanded((value) => !value)}>
+          {expanded ? "收起" : "登录 / 注册"}
+        </button>
+      </div>
+      {expanded && (
+        <form
+          className="auth-form"
+          onSubmit={(event) => {
+            event.preventDefault();
+            onSignIn(email, password);
+          }}
+        >
+          <input
+            type="email"
+            autoComplete="email"
+            placeholder="邮箱"
+            required
+            value={email}
+            onChange={(event) => setEmail(event.target.value)}
+          />
+          <input
+            type="password"
+            autoComplete="current-password"
+            placeholder="密码（至少 6 位）"
+            minLength={6}
+            required
+            value={password}
+            onChange={(event) => setPassword(event.target.value)}
+          />
+          <div>
+            <button type="submit" disabled={busy}>登录</button>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => onSignUp(email, password)}
+            >
+              注册
+            </button>
+          </div>
+        </form>
+      )}
+      {message && <small role="status">{message}</small>}
+    </aside>
+  );
+}
+
 function UploadView({
   onUpload,
   loading,
@@ -32,12 +156,14 @@ function UploadView({
   onOpenLibrary,
   onStartLibrary,
   onDeleteLibrary,
+  accountPanel,
 }) {
   const inputRef = useRef(null);
 
   return (
     <main className="upload-page">
       <div className="home-shell">
+        {accountPanel}
         <section className="upload-panel">
           <div className="mark" aria-hidden="true">W</div>
           <h1>极简背词</h1>
@@ -261,11 +387,15 @@ function StudyView({
   starredWordIds,
   onToggleStar,
   onMaster,
+  initialIndex,
+  onProgress,
   onExit,
   onReset,
 }) {
   const [sessionWords, setSessionWords] = useState(words);
-  const [index, setIndex] = useState(0);
+  const [index, setIndex] = useState(
+    Math.max(0, Math.min(words.length - 1, initialIndex || 0)),
+  );
   const [revealed, setRevealed] = useState(false);
   const [starAnimating, setStarAnimating] = useState(false);
   const [gestureOffset, setGestureOffset] = useState(null);
@@ -297,6 +427,7 @@ function StudyView({
       setStarAnimating(false);
       setIndex(boundedIndex);
       setRevealed(false);
+      onProgress(boundedIndex, sessionWords[boundedIndex].id);
     }
   };
 
@@ -324,7 +455,7 @@ function StudyView({
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [index, isMastering, onExit, sessionWords.length]);
+  }, [index, isMastering, onExit, onProgress, sessionWords.length]);
 
   useEffect(() => () => {
     window.cancelAnimationFrame(starAnimationFrame.current);
@@ -577,7 +708,85 @@ export default function App() {
   const [draftLibraryName, setDraftLibraryName] = useState("");
   const [starredWordIds, setStarredWordIds] = useState([]);
   const [studyWords, setStudyWords] = useState([]);
+  const [studyInitialIndex, setStudyInitialIndex] = useState(0);
   const [saveMessage, setSaveMessage] = useState("");
+  const [session, setSession] = useState(null);
+  const [cloudBusy, setCloudBusy] = useState(false);
+  const [accountMessage, setAccountMessage] = useState("");
+  const [migrationStrategy, setMigrationStrategy] = useState("skip");
+  const [migrationDismissed, setMigrationDismissed] = useState(false);
+  const isCloudMode = Boolean(session && supabase);
+  const localLibraries = loadLibraries();
+
+  useEffect(() => {
+    if (!supabase) return undefined;
+
+    supabase.auth.getSession().then(({ data, error: sessionError }) => {
+      if (sessionError) setAccountMessage(sessionError.message);
+      setSession(data.session);
+    });
+    const { data } = supabase.auth.onAuthStateChange((event, nextSession) => {
+      setSession(nextSession);
+      if (event === "SIGNED_OUT") setMigrationDismissed(false);
+    });
+    return () => data.subscription.unsubscribe();
+  }, []);
+
+  useEffect(() => {
+    if (!session) {
+      setLibraries(loadLibraries());
+      return;
+    }
+
+    let active = true;
+    setCloudBusy(true);
+    fetchCloudLibraries(session.user.id)
+      .then((cloudLibraries) => {
+        if (active) setLibraries(cloudLibraries);
+      })
+      .catch((cloudError) => {
+        if (active) setAccountMessage(`云端读取失败：${cloudError.message}`);
+      })
+      .finally(() => {
+        if (active) setCloudBusy(false);
+      });
+    return () => { active = false; };
+  }, [session]);
+
+  const handleSignIn = async (email, password) => {
+    setCloudBusy(true);
+    setAccountMessage("");
+    const { error: authError } = await supabase.auth.signInWithPassword({
+      email,
+      password,
+    });
+    setAccountMessage(authError ? authError.message : "登录成功。");
+    setCloudBusy(false);
+  };
+
+  const handleSignUp = async (email, password) => {
+    setCloudBusy(true);
+    setAccountMessage("");
+    const { data, error: authError } = await supabase.auth.signUp({
+      email,
+      password,
+    });
+    if (authError) {
+      setAccountMessage(authError.message);
+    } else if (!data.session) {
+      setAccountMessage("注册成功，请先到邮箱完成验证。");
+    } else {
+      setAccountMessage("注册并登录成功。");
+    }
+    setCloudBusy(false);
+  };
+
+  const handleSignOut = async () => {
+    setCloudBusy(true);
+    const { error: authError } = await supabase.auth.signOut();
+    if (authError) setAccountMessage(authError.message);
+    setCloudBusy(false);
+  };
 
   const handleUpload = async (file) => {
     if (!file) return;
@@ -647,7 +856,7 @@ export default function App() {
     setView(startImmediately ? "mode" : "list");
   };
 
-  const saveCurrentLibrary = (name, forceOverwrite = false) => {
+  const saveCurrentLibrary = async (name, forceOverwrite = false) => {
     const trimmedName = name.trim();
     if (!trimmedName) {
       setSaveMessage("请先输入词库名称。");
@@ -679,6 +888,28 @@ export default function App() {
         ...updateLibrary(overwriteTarget, trimmedName, words),
         starredWordIds: starredWordIds.filter((id) => wordIds.has(id)),
       };
+      if (isCloudMode) {
+        setCloudBusy(true);
+        try {
+          const cloudLibrary = await replaceCloudLibrary(
+            session.user.id,
+            overwriteTarget.id,
+            updated,
+          );
+          setLibraries((items) => items
+            .map((item) => (item.id === cloudLibrary.id ? cloudLibrary : item))
+            .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)));
+          setWords(cloudLibrary.words);
+          setStarredWordIds(cloudLibrary.starredWordIds);
+          setCurrentLibraryId(cloudLibrary.id);
+          setSaveMessage(`已同步“${cloudLibrary.name}”。`);
+        } catch (cloudError) {
+          setSaveMessage(`云端保存失败：${cloudError.message}`);
+        } finally {
+          setCloudBusy(false);
+        }
+        return;
+      }
       const nextLibraries = libraries
         .map((library) => (library.id === updated.id ? updated : library))
         .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
@@ -695,6 +926,23 @@ export default function App() {
       ...createLibrary(trimmedName, words),
       starredWordIds,
     };
+    if (isCloudMode) {
+      setCloudBusy(true);
+      try {
+        const cloudLibrary = await createCloudLibrary(session.user.id, created);
+        setLibraries((items) => [cloudLibrary, ...items]);
+        setWords(cloudLibrary.words);
+        setStarredWordIds(cloudLibrary.starredWordIds);
+        setCurrentLibraryId(cloudLibrary.id);
+        setDraftLibraryName(cloudLibrary.name);
+        setSaveMessage(`已同步“${cloudLibrary.name}”。`);
+      } catch (cloudError) {
+        setSaveMessage(`云端保存失败：${cloudError.message}`);
+      } finally {
+        setCloudBusy(false);
+      }
+      return;
+    }
     const nextLibraries = [created, ...libraries];
     if (commitLibraries(nextLibraries)) {
       setCurrentLibraryId(created.id);
@@ -703,9 +951,21 @@ export default function App() {
     }
   };
 
-  const deleteLibrary = (library) => {
+  const deleteLibrary = async (library) => {
     const confirmed = window.confirm(`确定删除词库“${library.name}”吗？`);
     if (!confirmed) return;
+    if (isCloudMode) {
+      setCloudBusy(true);
+      try {
+        await deleteCloudLibrary(session.user.id, library.id);
+        setLibraries((items) => items.filter((item) => item.id !== library.id));
+      } catch (cloudError) {
+        setAccountMessage(`云端删除失败：${cloudError.message}`);
+      } finally {
+        setCloudBusy(false);
+      }
+      return;
+    }
     commitLibraries(libraries.filter((item) => item.id !== library.id));
   };
 
@@ -729,6 +989,16 @@ export default function App() {
         ? { ...library, starredWordIds: nextStarredWordIds }
         : library
     ));
+    if (isCloudMode) {
+      setLibraries(nextLibraries);
+      setStarredWordIds(nextStarredWordIds);
+      updateCloudWord(session.user.id, currentLibraryId, wordId, {
+        starred: nextStarredWordIds.includes(wordId),
+      }).catch((cloudError) => {
+        setAccountMessage(`星标同步失败：${cloudError.message}`);
+      });
+      return;
+    }
     if (commitLibraries(nextLibraries)) {
       setStarredWordIds(nextStarredWordIds);
     }
@@ -750,9 +1020,89 @@ export default function App() {
         : library
     ));
 
+    if (isCloudMode) {
+      setLibraries(nextLibraries);
+      setWords(nextWords);
+      updateCloudWord(session.user.id, currentLibraryId, wordId, {
+        mastered: true,
+      }).catch((cloudError) => {
+        setAccountMessage(`掌握状态同步失败：${cloudError.message}`);
+      });
+      return true;
+    }
+
     if (!commitLibraries(nextLibraries)) return false;
     setWords(nextWords);
     return true;
+  };
+
+  const saveProgress = (sessionIndex, wordId) => {
+    if (!currentLibraryId) return;
+    const wordIndex = words.findIndex((word) => word.id === wordId);
+    const lastIndex = wordIndex >= 0 ? wordIndex : sessionIndex;
+    const nextLibraries = libraries.map((library) => (
+      library.id === currentLibraryId
+        ? { ...library, lastIndex }
+        : library
+    ));
+    setLibraries(nextLibraries);
+    if (isCloudMode) {
+      saveCloudProgress(
+        session.user.id,
+        currentLibraryId,
+        lastIndex,
+      ).catch((cloudError) => {
+        setAccountMessage(`进度同步失败：${cloudError.message}`);
+      });
+    } else {
+      persistLibraries(nextLibraries);
+    }
+  };
+
+  const migrateLocalLibraries = async () => {
+    setCloudBusy(true);
+    setAccountMessage("");
+    try {
+      let cloudLibraries = [...libraries];
+      for (const localLibrary of localLibraries) {
+        const duplicate = cloudLibraries.find(
+          (item) => item.name.trim() === localLibrary.name.trim(),
+        );
+        if (duplicate && migrationStrategy === "skip") continue;
+        if (duplicate && migrationStrategy === "overwrite") {
+          const replaced = await replaceCloudLibrary(
+            session.user.id,
+            duplicate.id,
+            localLibrary,
+          );
+          cloudLibraries = cloudLibraries.map((item) => (
+            item.id === replaced.id ? replaced : item
+          ));
+          continue;
+        }
+
+        let name = localLibrary.name;
+        if (duplicate && migrationStrategy === "rename") {
+          let suffix = 2;
+          while (cloudLibraries.some((item) => item.name === `${name} ${suffix}`)) {
+            suffix += 1;
+          }
+          name = `${name} ${suffix}`;
+        }
+        const created = await createCloudLibrary(session.user.id, {
+          ...localLibrary,
+          name,
+        });
+        cloudLibraries.push(created);
+      }
+      setLibraries(await fetchCloudLibraries(session.user.id));
+      setMigrationDismissed(true);
+      setAccountMessage("本地词库已上传，原本地数据仍然保留。");
+    } catch (cloudError) {
+      setAccountMessage(`迁移失败：${cloudError.message}`);
+    } finally {
+      setCloudBusy(false);
+    }
   };
 
   const startStudy = (mode) => {
@@ -770,6 +1120,12 @@ export default function App() {
 
     if (!selectedWords.length) return;
     setStudyWords(selectedWords);
+    const currentLibrary = libraries.find(
+      (library) => library.id === currentLibraryId,
+    );
+    setStudyInitialIndex(
+      mode === "all" ? (currentLibrary?.lastIndex || 0) : 0,
+    );
     setView("study");
   };
 
@@ -780,6 +1136,8 @@ export default function App() {
         starredWordIds={starredWordIds}
         onToggleStar={toggleStar}
         onMaster={masterWord}
+        initialIndex={studyInitialIndex}
+        onProgress={saveProgress}
         onExit={() => setView("list")}
         onReset={reset}
       />
@@ -827,6 +1185,25 @@ export default function App() {
       onOpenLibrary={(library) => openLibrary(library, false)}
       onStartLibrary={(library) => openLibrary(library, true)}
       onDeleteLibrary={deleteLibrary}
+      accountPanel={(
+        <AccountPanel
+          session={session}
+          busy={cloudBusy}
+          message={accountMessage}
+          hasLocalLibraries={
+            Boolean(session)
+            && localLibraries.length > 0
+            && !migrationDismissed
+          }
+          migrationStrategy={migrationStrategy}
+          onMigrationStrategyChange={setMigrationStrategy}
+          onMigrate={migrateLocalLibraries}
+          onKeepLocal={() => setMigrationDismissed(true)}
+          onSignIn={handleSignIn}
+          onSignUp={handleSignUp}
+          onSignOut={handleSignOut}
+        />
+      )}
     />
   );
 }

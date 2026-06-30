@@ -65,4 +65,5 @@ test("adds an empty star list when loading older libraries", () => {
 
   assert.deepEqual(loadLibraries(storage)[0].starredWordIds, []);
   assert.equal(loadLibraries(storage)[0].words[0].mastered, false);
+  assert.equal(loadLibraries(storage)[0].lastIndex, 0);
 });

@@ -26,6 +26,9 @@ export function loadLibraries(storage = globalThis.localStorage) {
         return {
           ...library,
           words,
+          lastIndex: Number.isInteger(library.lastIndex)
+            ? Math.max(0, library.lastIndex)
+            : 0,
           starredWordIds: Array.isArray(library.starredWordIds)
             ? [...new Set(library.starredWordIds)].filter((id) => wordIds.has(id))
             : [],
@@ -54,6 +57,7 @@ export function createLibrary(name, words, now = new Date().toISOString()) {
       mastered: word.mastered === true,
     })),
     starredWordIds: [],
+    lastIndex: 0,
     createdAt: now,
     updatedAt: now,
   };
