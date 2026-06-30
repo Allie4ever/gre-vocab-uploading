@@ -18,9 +18,14 @@ export function loadLibraries(storage = globalThis.localStorage) {
           && typeof library.updatedAt === "string",
       )
       .map((library) => {
-        const wordIds = new Set(library.words.map((word) => word.id));
+        const words = library.words.map((word) => ({
+          ...word,
+          mastered: word.mastered === true,
+        }));
+        const wordIds = new Set(words.map((word) => word.id));
         return {
           ...library,
+          words,
           starredWordIds: Array.isArray(library.starredWordIds)
             ? [...new Set(library.starredWordIds)].filter((id) => wordIds.has(id))
             : [],
@@ -44,7 +49,10 @@ export function createLibrary(name, words, now = new Date().toISOString()) {
   return {
     id,
     name: name.trim(),
-    words,
+    words: words.map((word) => ({
+      ...word,
+      mastered: word.mastered === true,
+    })),
     starredWordIds: [],
     createdAt: now,
     updatedAt: now,
@@ -52,12 +60,16 @@ export function createLibrary(name, words, now = new Date().toISOString()) {
 }
 
 export function updateLibrary(library, name, words, now = new Date().toISOString()) {
-  const wordIds = new Set(words.map((word) => word.id));
+  const normalizedWords = words.map((word) => ({
+    ...word,
+    mastered: word.mastered === true,
+  }));
+  const wordIds = new Set(normalizedWords.map((word) => word.id));
 
   return {
     ...library,
     name: name.trim(),
-    words,
+    words: normalizedWords,
     starredWordIds: (library.starredWordIds || []).filter((id) => wordIds.has(id)),
     updatedAt: now,
   };

@@ -177,6 +177,10 @@ p {
   color: #777;
 }
 
+.library-main .library-mastered-count {
+  color: #6b7280;
+}
+
 .library-actions {
   display: flex;
   gap: 12px;
@@ -430,6 +434,14 @@ p {
   font-size: 15px;
 }
 
+.mode-options strong em {
+  margin-left: 6px;
+  color: #999;
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 500;
+}
+
 .mode-options small {
   color: #999;
   font-size: 12px;
@@ -442,8 +454,16 @@ p {
   border-radius: 50%;
 }
 
+.mode-options > button.is-default .mode-radio {
+  border: 5px solid #171717;
+}
+
 .mode-star {
   color: #f5b301;
+}
+
+.mode-mastered {
+  color: #6b7280;
 }
 
 .study-page {
@@ -489,7 +509,18 @@ p {
   justify-self: center;
   padding: 48px 8px;
   text-align: center;
+  opacity: 1;
+  transform: translate3d(0, 0, 0) scale(1);
+  transition:
+    transform 200ms ease,
+    opacity 200ms ease;
   animation: word-fade 150ms ease-out;
+}
+
+.card-stage.is-mastering {
+  opacity: 0;
+  transform: translate3d(0, -110vh, 0) scale(0.98);
+  pointer-events: none;
 }
 
 .star-button {

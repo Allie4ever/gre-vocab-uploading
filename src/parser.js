@@ -26,7 +26,12 @@ export function parseVocabulary(text) {
 
     if (!word || !meaning || !ENGLISH_TERM.test(word)) continue;
 
-    words.push({ id: `${word}-${words.length}`, word, meaning });
+    words.push({
+      id: `${word}-${words.length}`,
+      word,
+      meaning,
+      mastered: false,
+    });
   }
 
   return words;

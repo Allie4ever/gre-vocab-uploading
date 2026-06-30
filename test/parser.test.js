@@ -37,6 +37,7 @@ test("supports colon, dash, tab, and plain-space delimiters", () => {
   for (const entry of parsed) {
     assert.equal(entry.word, "recoil from");
     assert.equal(entry.meaning, "畏缩");
+    assert.equal(entry.mastered, false);
   }
 });
 

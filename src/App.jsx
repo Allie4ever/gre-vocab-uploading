@@ -17,6 +17,13 @@ function formatUpdatedAt(value) {
   }).format(new Date(value));
 }
 
+function countMastered(words) {
+  return words.reduce(
+    (count, word) => count + (word.mastered === true ? 1 : 0),
+    0,
+  );
+}
+
 function UploadView({
   onUpload,
   loading,
@@ -72,7 +79,13 @@ function UploadView({
                     <strong>{library.name}</strong>
                     <span>{library.words.length} 个单词</span>
                     <span className="library-star-count">
-                      ★ {library.starredWordIds.length} 个重点词
+                      ★ 重点词 {library.starredWordIds.length}
+                    </span>
+                    <span className="library-mastered-count">
+                      ◆ 已掌握 {countMastered(library.words)}
+                    </span>
+                    <span>
+                      剩余 {library.words.length - countMastered(library.words)} 个
                     </span>
                     <span>更新于 {formatUpdatedAt(library.updatedAt)}</span>
                   </button>
@@ -168,7 +181,15 @@ function ListView({
   );
 }
 
-function StudyModeView({ wordCount, starredCount, onSelect, onBack }) {
+function StudyModeView({
+  wordCount,
+  starredCount,
+  masteredCount,
+  onSelect,
+  onBack,
+}) {
+  const unmasteredCount = wordCount - masteredCount;
+
   return (
     <main className="mode-page">
       <section className="mode-panel" aria-labelledby="mode-title">
@@ -183,8 +204,37 @@ function StudyModeView({ wordCount, starredCount, onSelect, onBack }) {
           <button type="button" onClick={() => onSelect("all")}>
             <span className="mode-radio" aria-hidden="true" />
             <span>
-              <strong>全部单词</strong>
+              <strong>全部</strong>
               <small>{wordCount} 个单词</small>
+            </span>
+          </button>
+          <button
+            className="is-default"
+            type="button"
+            disabled={unmasteredCount === 0}
+            onClick={() => onSelect("unmastered")}
+          >
+            <span className="mode-radio" aria-hidden="true" />
+            <span>
+              <strong>未掌握 <em>默认</em></strong>
+              <small>
+                {unmasteredCount > 0 ? `${unmasteredCount} 个单词` : "全部掌握了"}
+              </small>
+            </span>
+          </button>
+          <button
+            type="button"
+            disabled={masteredCount === 0}
+            onClick={() => onSelect("mastered")}
+          >
+            <span className="mode-radio" aria-hidden="true" />
+            <span>
+              <strong>
+                <span className="mode-mastered" aria-hidden="true">◆</span> 已掌握
+              </strong>
+              <small>
+                {masteredCount > 0 ? `${masteredCount} 个单词` : "还没有已掌握单词"}
+              </small>
             </span>
           </button>
           <button
@@ -194,7 +244,7 @@ function StudyModeView({ wordCount, starredCount, onSelect, onBack }) {
           >
             <span className="mode-radio" aria-hidden="true" />
             <span>
-              <strong><span className="mode-star" aria-hidden="true">★</span> 仅重点词</strong>
+              <strong><span className="mode-star" aria-hidden="true">★</span> 星标</strong>
               <small>
                 {starredCount > 0 ? `${starredCount} 个已星标单词` : "还没有星标单词"}
               </small>
@@ -206,23 +256,42 @@ function StudyModeView({ wordCount, starredCount, onSelect, onBack }) {
   );
 }
 
-function StudyView({ words, starredWordIds, onToggleStar, onExit, onReset }) {
+function StudyView({
+  words,
+  starredWordIds,
+  onToggleStar,
+  onMaster,
+  onExit,
+  onReset,
+}) {
+  const [sessionWords, setSessionWords] = useState(words);
   const [index, setIndex] = useState(0);
   const [revealed, setRevealed] = useState(false);
   const [starAnimating, setStarAnimating] = useState(false);
+  const [gestureOffset, setGestureOffset] = useState(null);
+  const [isMastering, setIsMastering] = useState(false);
+  const [completedCount, setCompletedCount] = useState(0);
   const startX = useRef(null);
   const startY = useRef(null);
   const lastTouchX = useRef(null);
   const lastTouchY = useRef(null);
+  const directionLock = useRef(null);
   const didSwipe = useRef(false);
   const lastWheelAt = useRef(0);
   const starAnimationTimer = useRef(null);
   const starAnimationFrame = useRef(null);
-  const current = words[index];
+  const masterAnimationTimer = useRef(null);
+  const clickSuppressionTimer = useRef(null);
+  const initialTotal = useRef(words.length);
+  const current = sessionWords[index];
   const isStarred = starredWordIds.includes(current.id);
 
   const goTo = (nextIndex) => {
-    const boundedIndex = Math.max(0, Math.min(words.length - 1, nextIndex));
+    if (isMastering) return;
+    const boundedIndex = Math.max(
+      0,
+      Math.min(sessionWords.length - 1, nextIndex),
+    );
     if (boundedIndex !== index) {
       window.cancelAnimationFrame(starAnimationFrame.current);
       window.clearTimeout(starAnimationTimer.current);
@@ -260,22 +329,33 @@ function StudyView({ words, starredWordIds, onToggleStar, onExit, onReset }) {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [index, onExit]);
+  }, [index, isMastering, onExit, sessionWords.length]);
 
   useEffect(() => () => {
     window.cancelAnimationFrame(starAnimationFrame.current);
     window.clearTimeout(starAnimationTimer.current);
+    window.clearTimeout(masterAnimationTimer.current);
+    window.clearTimeout(clickSuppressionTimer.current);
   }, []);
+
+  const suppressGestureClick = () => {
+    didSwipe.current = true;
+    window.clearTimeout(clickSuppressionTimer.current);
+    clickSuppressionTimer.current = window.setTimeout(() => {
+      didSwipe.current = false;
+    }, 400);
+  };
 
   const resetTouch = () => {
     startX.current = null;
     startY.current = null;
     lastTouchX.current = null;
     lastTouchY.current = null;
+    directionLock.current = null;
   };
 
   const handleTouchStart = (event) => {
-    if (event.touches.length !== 1) {
+    if (isMastering || event.touches.length !== 1) {
       resetTouch();
       return;
     }
@@ -285,13 +365,63 @@ function StudyView({ words, starredWordIds, onToggleStar, onExit, onReset }) {
     startY.current = touch.clientY;
     lastTouchX.current = touch.clientX;
     lastTouchY.current = touch.clientY;
+    window.clearTimeout(clickSuppressionTimer.current);
     didSwipe.current = false;
   };
 
   const handleTouchMove = (event) => {
     if (startX.current === null || event.touches.length !== 1) return;
-    lastTouchX.current = event.touches[0].clientX;
-    lastTouchY.current = event.touches[0].clientY;
+    const touch = event.touches[0];
+    const distanceX = touch.clientX - startX.current;
+    const distanceY = touch.clientY - startY.current;
+    const absoluteX = Math.abs(distanceX);
+    const absoluteY = Math.abs(distanceY);
+
+    lastTouchX.current = touch.clientX;
+    lastTouchY.current = touch.clientY;
+
+    if (directionLock.current === null) {
+      if (Math.max(absoluteX, absoluteY) < 12) return;
+
+      if (absoluteX > absoluteY * 1.3) {
+        directionLock.current = "horizontal";
+      } else if (absoluteY > absoluteX * 1.3) {
+        directionLock.current = "vertical";
+      } else {
+        return;
+      }
+    }
+
+    if (directionLock.current === "horizontal") {
+      setGestureOffset({ x: distanceX, y: 0 });
+    } else {
+      if (event.cancelable) event.preventDefault();
+      setGestureOffset({ x: 0, y: distanceY });
+    }
+  };
+
+  const beginMastering = () => {
+    if (!onMaster(current.id)) {
+      setGestureOffset(null);
+      return;
+    }
+
+    setGestureOffset(null);
+    setIsMastering(true);
+    masterAnimationTimer.current = window.setTimeout(() => {
+      const nextWords = sessionWords.filter((word) => word.id !== current.id);
+
+      if (!nextWords.length) {
+        onExit();
+        return;
+      }
+
+      setSessionWords(nextWords);
+      setIndex((currentIndex) => Math.min(currentIndex, nextWords.length - 1));
+      setCompletedCount((count) => count + 1);
+      setRevealed(false);
+      setIsMastering(false);
+    }, 200);
   };
 
   const handleTouchEnd = (event) => {
@@ -302,23 +432,40 @@ function StudyView({ words, starredWordIds, onToggleStar, onExit, onReset }) {
     const endY = touch?.clientY ?? lastTouchY.current;
     const distanceX = endX - startX.current;
     const distanceY = endY - startY.current;
+    const lockedDirection = directionLock.current;
+    const movedEnough =
+      Math.max(Math.abs(distanceX), Math.abs(distanceY)) >= 12;
     resetTouch();
+    setGestureOffset(null);
 
-    if (
-      Math.abs(distanceX) < 50
-      || Math.abs(distanceX) <= Math.abs(distanceY)
-    ) return;
+    if (!lockedDirection) {
+      if (movedEnough) suppressGestureClick();
+      return;
+    }
 
-    didSwipe.current = true;
-    if (distanceX < 0) goTo(index + 1);
-    if (distanceX > 0) goTo(index - 1);
+    suppressGestureClick();
+    if (lockedDirection === "horizontal") {
+      if (Math.abs(distanceX) < 50) return;
+      if (distanceX < 0) goTo(index + 1);
+      if (distanceX > 0) goTo(index - 1);
+      return;
+    }
+
+    if (distanceY <= -60) beginMastering();
+  };
+
+  const handleTouchCancel = () => {
+    resetTouch();
+    setGestureOffset(null);
   };
 
   const handlePageClick = (event) => {
     if (didSwipe.current) {
+      window.clearTimeout(clickSuppressionTimer.current);
       didSwipe.current = false;
       return;
     }
+    if (isMastering) return;
     if (event.target.closest("button")) return;
     if (event.target.closest(".study-header, .study-footer")) return;
 
@@ -343,6 +490,7 @@ function StudyView({ words, starredWordIds, onToggleStar, onExit, onReset }) {
   };
 
   const handleWheel = (event) => {
+    if (isMastering) return;
     if (Math.abs(event.deltaY) < 8) return;
     const now = Date.now();
     if (now - lastWheelAt.current < 350) return;
@@ -360,7 +508,7 @@ function StudyView({ words, starredWordIds, onToggleStar, onExit, onReset }) {
       onTouchStart={handleTouchStart}
       onTouchMove={handleTouchMove}
       onTouchEnd={handleTouchEnd}
-      onTouchCancel={resetTouch}
+      onTouchCancel={handleTouchCancel}
     >
       <header className="study-header">
         <button className="header-button" type="button" onClick={onExit}>
@@ -390,7 +538,19 @@ function StudyView({ words, starredWordIds, onToggleStar, onExit, onReset }) {
         下一个 <span aria-hidden="true">›</span>
       </button>
 
-      <section className="card-stage" key={index} aria-live="polite">
+      <section
+        className={`card-stage${isMastering ? " is-mastering" : ""}`}
+        key={`${index}-${current.id}`}
+        style={
+          gestureOffset
+            ? {
+              transform: `translate3d(${gestureOffset.x}px, ${gestureOffset.y}px, 0)`,
+              transition: "none",
+            }
+            : undefined
+        }
+        aria-live="polite"
+      >
         <button
           className={`star-button${isStarred ? " is-starred" : ""}${starAnimating ? " is-animating" : ""}`}
           type="button"
@@ -414,10 +574,18 @@ function StudyView({ words, starredWordIds, onToggleStar, onExit, onReset }) {
 
       <footer className="study-footer">
         <div className="progress-track" aria-hidden="true">
-          <span style={{ width: `${((index + 1) / words.length) * 100}%` }} />
+          <span
+            style={{
+              width: `${(
+                (completedCount + index + 1)
+                / initialTotal.current
+              ) * 100}%`,
+            }}
+          />
         </div>
         <p className="progress-text">
-          <strong>{index + 1}</strong><span> / {words.length}</span>
+          <strong>{completedCount + index + 1}</strong>
+          <span> / {initialTotal.current}</span>
         </p>
       </footer>
     </main>
@@ -592,10 +760,39 @@ export default function App() {
     }
   };
 
+  const masterWord = (wordId) => {
+    const nextWords = words.map((word) => (
+      word.id === wordId ? { ...word, mastered: true } : word
+    ));
+
+    if (!currentLibraryId) {
+      setWords(nextWords);
+      return true;
+    }
+
+    const nextLibraries = libraries.map((library) => (
+      library.id === currentLibraryId
+        ? { ...library, words: nextWords }
+        : library
+    ));
+
+    if (!commitLibraries(nextLibraries)) return false;
+    setWords(nextWords);
+    return true;
+  };
+
   const startStudy = (mode) => {
-    const selectedWords = mode === "starred"
-      ? words.filter((word) => starredWordIds.includes(word.id))
-      : words;
+    let selectedWords = words;
+
+    if (mode === "unmastered") {
+      selectedWords = words.filter((word) => !word.mastered);
+    }
+    if (mode === "mastered") {
+      selectedWords = words.filter((word) => word.mastered);
+    }
+    if (mode === "starred") {
+      selectedWords = words.filter((word) => starredWordIds.includes(word.id));
+    }
 
     if (!selectedWords.length) return;
     setStudyWords(selectedWords);
@@ -608,6 +805,7 @@ export default function App() {
         words={studyWords}
         starredWordIds={starredWordIds}
         onToggleStar={toggleStar}
+        onMaster={masterWord}
         onExit={() => setView("list")}
         onReset={reset}
       />
@@ -619,6 +817,7 @@ export default function App() {
       <StudyModeView
         wordCount={words.length}
         starredCount={starredWordIds.length}
+        masteredCount={countMastered(words)}
         onSelect={startStudy}
         onBack={() => setView("list")}
       />

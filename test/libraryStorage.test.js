@@ -57,11 +57,12 @@ test("adds an empty star list when loading older libraries", () => {
   const legacyLibrary = {
     id: "library-1",
     name: "旧词库",
-    words: [],
+    words: [{ id: "word-0", word: "lucid", meaning: "清晰的" }],
     createdAt: "2026-06-28T00:00:00.000Z",
     updatedAt: "2026-06-28T00:00:00.000Z",
   };
   const storage = makeStorage(JSON.stringify([legacyLibrary]));
 
   assert.deepEqual(loadLibraries(storage)[0].starredWordIds, []);
+  assert.equal(loadLibraries(storage)[0].words[0].mastered, false);
 });
