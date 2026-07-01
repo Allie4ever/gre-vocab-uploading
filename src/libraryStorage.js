@@ -23,11 +23,12 @@ export function loadLibraries(storage = globalThis.localStorage) {
           mastered: word.mastered === true,
         }));
         const wordIds = new Set(words.map((word) => word.id));
+        const maximumIndex = Math.max(0, words.length - 1);
         return {
           ...library,
           words,
           lastIndex: Number.isInteger(library.lastIndex)
-            ? Math.max(0, library.lastIndex)
+            ? Math.max(0, Math.min(maximumIndex, library.lastIndex))
             : 0,
           starredWordIds: Array.isArray(library.starredWordIds)
             ? [...new Set(library.starredWordIds)].filter((id) => wordIds.has(id))
@@ -74,6 +75,10 @@ export function updateLibrary(library, name, words, now = new Date().toISOString
     ...library,
     name: name.trim(),
     words: normalizedWords,
+    lastIndex: Math.max(
+      0,
+      Math.min(normalizedWords.length - 1, library.lastIndex || 0),
+    ),
     starredWordIds: (library.starredWordIds || []).filter((id) => wordIds.has(id)),
     updatedAt: now,
   };

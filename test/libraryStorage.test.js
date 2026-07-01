@@ -50,6 +50,7 @@ test("overwriting preserves creation time and updates content", () => {
   assert.equal(updated.createdAt, original.createdAt);
   assert.equal(updated.updatedAt, "2026-06-29T00:00:00.000Z");
   assert.equal(updated.words.length, 1);
+  assert.equal(updated.lastIndex, 0);
   assert.deepEqual(updated.starredWordIds, ["word-0"]);
 });
 
@@ -66,4 +67,22 @@ test("adds an empty star list when loading older libraries", () => {
   assert.deepEqual(loadLibraries(storage)[0].starredWordIds, []);
   assert.equal(loadLibraries(storage)[0].words[0].mastered, false);
   assert.equal(loadLibraries(storage)[0].lastIndex, 0);
+});
+
+test("clamps a saved lastIndex to the current library bounds", () => {
+  const library = {
+    id: "library-1",
+    name: "缩短后的词库",
+    words: [
+      { id: "word-0", word: "lucid", meaning: "清晰的" },
+      { id: "word-1", word: "arduous", meaning: "艰难的" },
+    ],
+    starredWordIds: [],
+    lastIndex: 99,
+    createdAt: "2026-06-28T00:00:00.000Z",
+    updatedAt: "2026-06-29T00:00:00.000Z",
+  };
+  const storage = makeStorage(JSON.stringify([library]));
+
+  assert.equal(loadLibraries(storage)[0].lastIndex, 1);
 });

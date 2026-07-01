@@ -16,6 +16,11 @@ import {
 } from "./libraryStorage";
 import { isSupabaseConfigured, supabase } from "./lib/supabase";
 import { parseVocabulary } from "./parser";
+import {
+  loadAppSession,
+  saveAppSession,
+  saveHomeSession,
+} from "./appSession";
 
 function formatUpdatedAt(value) {
   return new Intl.DateTimeFormat("zh-CN", {
@@ -30,6 +35,27 @@ function countMastered(words) {
   return words.reduce(
     (count, word) => count + (word.mastered === true ? 1 : 0),
     0,
+  );
+}
+
+function getWordsForMode(words, starredWordIds, mode) {
+  if (mode === "unmastered") {
+    return words.filter((word) => !word.mastered);
+  }
+  if (mode === "mastered") {
+    return words.filter((word) => word.mastered);
+  }
+  if (mode === "starred") {
+    return words.filter((word) => starredWordIds.includes(word.id));
+  }
+  return words;
+}
+
+function RestoreLoadingView() {
+  return (
+    <main className="restore-loading" aria-live="polite">
+      <p>正在恢复学习状态…</p>
+    </main>
   );
 }
 
@@ -394,15 +420,18 @@ function StudyView({
   onToggleStar,
   onMaster,
   initialIndex,
+  initialRevealed,
   onProgress,
+  onMeaningChange,
   onExit,
+  onRestart,
   onReset,
 }) {
   const [sessionWords, setSessionWords] = useState(words);
   const [index, setIndex] = useState(
     Math.max(0, Math.min(words.length - 1, initialIndex || 0)),
   );
-  const [revealed, setRevealed] = useState(false);
+  const [revealed, setRevealed] = useState(initialRevealed === true);
   const [starAnimating, setStarAnimating] = useState(false);
   const [gestureOffset, setGestureOffset] = useState(null);
   const [isMastering, setIsMastering] = useState(false);
@@ -420,6 +449,11 @@ function StudyView({
   const initialTotal = useRef(words.length);
   const current = sessionWords[index];
   const isStarred = starredWordIds.includes(current.id);
+
+  const updateRevealed = (nextValue) => {
+    setRevealed(nextValue);
+    onMeaningChange(index, current.id, nextValue);
+  };
 
   const goTo = (nextIndex) => {
     if (isMastering) return;
@@ -451,7 +485,7 @@ function StudyView({
       }
       if (event.key === " ") {
         event.preventDefault();
-        setRevealed((value) => !value);
+        updateRevealed(!revealed);
       }
       if (event.key === "Escape") {
         event.preventDefault();
@@ -461,7 +495,15 @@ function StudyView({
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [index, isMastering, onExit, onProgress, sessionWords.length]);
+  }, [
+    index,
+    isMastering,
+    onExit,
+    onMeaningChange,
+    onProgress,
+    revealed,
+    sessionWords.length,
+  ]);
 
   useEffect(() => () => {
     window.cancelAnimationFrame(starAnimationFrame.current);
@@ -549,10 +591,12 @@ function StudyView({
       }
 
       setSessionWords(nextWords);
-      setIndex((currentIndex) => Math.min(currentIndex, nextWords.length - 1));
+      const nextIndex = Math.min(index, nextWords.length - 1);
+      setIndex(nextIndex);
       setCompletedCount((count) => count + 1);
       setRevealed(false);
       setIsMastering(false);
+      onProgress(nextIndex, nextWords[nextIndex].id);
     }, 200);
   };
 
@@ -599,7 +643,7 @@ function StudyView({
     }
     if (isMastering) return;
     if (event.target.closest("button")) return;
-    setRevealed((value) => !value);
+    updateRevealed(!revealed);
   };
 
   const handleToggleStar = () => {
@@ -627,6 +671,9 @@ function StudyView({
       <header className="study-header">
         <button className="header-button" type="button" onClick={onExit}>
           ← 返回列表
+        </button>
+        <button className="header-button" type="button" onClick={onRestart}>
+          重新开始
         </button>
         <button className="header-button" type="button" onClick={onReset}>
           重新上传
@@ -660,7 +707,7 @@ function StudyView({
           {revealed ? (
             <p className="study-meaning">{current.meaning}</p>
           ) : (
-            <button className="reveal-button" type="button" onClick={() => setRevealed(true)}>
+            <button className="reveal-button" type="button" onClick={() => updateRevealed(true)}>
               点击查看释义
             </button>
           )}
@@ -704,6 +751,7 @@ function StudyView({
 }
 
 export default function App() {
+  const initialAppSession = useRef(loadAppSession());
   const [words, setWords] = useState([]);
   const [fileName, setFileName] = useState("");
   const [view, setView] = useState("upload");
@@ -715,12 +763,26 @@ export default function App() {
   const [starredWordIds, setStarredWordIds] = useState([]);
   const [studyWords, setStudyWords] = useState([]);
   const [studyInitialIndex, setStudyInitialIndex] = useState(0);
+  const [studyInitialRevealed, setStudyInitialRevealed] = useState(false);
+  const [studyMode, setStudyMode] = useState("all");
+  const [studyRunId, setStudyRunId] = useState(0);
   const [saveMessage, setSaveMessage] = useState("");
   const [session, setSession] = useState(null);
   const [cloudBusy, setCloudBusy] = useState(false);
   const [accountMessage, setAccountMessage] = useState("");
   const [migrationStrategy, setMigrationStrategy] = useState("skip");
   const [migrationDismissed, setMigrationDismissed] = useState(false);
+  const [authReady, setAuthReady] = useState(!supabase);
+  const [librariesReady, setLibrariesReady] = useState(!supabase);
+  const [restorePending, setRestorePending] = useState(
+    initialAppSession.current.screen === "review",
+  );
+  const wordsRef = useRef(words);
+  const starredWordIdsRef = useRef(starredWordIds);
+  const librariesRef = useRef(libraries);
+  wordsRef.current = words;
+  starredWordIdsRef.current = starredWordIds;
+  librariesRef.current = libraries;
   const isCloudMode = Boolean(session && supabase);
   const localLibraries = loadLibraries();
   const hasMigrationConflicts = localLibraries.some((localLibrary) => (
@@ -735,22 +797,37 @@ export default function App() {
     supabase.auth.getSession().then(({ data, error: sessionError }) => {
       if (sessionError) setAccountMessage(sessionError.message);
       setSession(data.session);
+      setAuthReady(true);
     });
     const { data } = supabase.auth.onAuthStateChange((event, nextSession) => {
       setSession(nextSession);
-      if (event === "SIGNED_IN") setView("upload");
-      if (event === "SIGNED_OUT") setMigrationDismissed(false);
+      setAuthReady(true);
+      if (event === "SIGNED_IN") setLibrariesReady(false);
+      if (event === "SIGNED_OUT") {
+        setMigrationDismissed(false);
+        setRestorePending(false);
+        saveHomeSession();
+        setWords([]);
+        setCurrentLibraryId(null);
+        setStudyWords([]);
+        setView("upload");
+      }
     });
     return () => data.subscription.unsubscribe();
   }, []);
 
   useEffect(() => {
+    if (!authReady) return undefined;
+
     if (!session) {
       setLibraries(loadLibraries());
-      return;
+      setLibrariesReady(true);
+      return undefined;
     }
 
     let active = true;
+    setLibraries([]);
+    setLibrariesReady(false);
     setCloudBusy(true);
     fetchCloudLibraries(session.user.id)
       .then((cloudLibraries) => {
@@ -758,12 +835,47 @@ export default function App() {
       })
       .catch((cloudError) => {
         if (active) setAccountMessage(`云端读取失败：${cloudError.message}`);
+        if (active) setLibraries([]);
       })
       .finally(() => {
-        if (active) setCloudBusy(false);
+        if (active) {
+          setCloudBusy(false);
+          setLibrariesReady(true);
+        }
       });
     return () => { active = false; };
-  }, [session]);
+  }, [authReady, session]);
+
+  useEffect(() => {
+    if (!restorePending || !authReady || !librariesReady) return;
+
+    const saved = initialAppSession.current;
+    const library = libraries.find((item) => item.id === saved.listId);
+    const selectedWords = library
+      ? getWordsForMode(library.words, library.starredWordIds, saved.mode)
+      : [];
+
+    if (!library || !selectedWords.length || saved.index >= selectedWords.length) {
+      saveHomeSession();
+      setRestorePending(false);
+      setView("upload");
+      return;
+    }
+
+    setWords(library.words);
+    setFileName("已保存词库");
+    setCurrentLibraryId(library.id);
+    setDraftLibraryName(library.name);
+    setStarredWordIds(library.starredWordIds);
+    setStudyWords(selectedWords);
+    setStudyMode(saved.mode);
+    setStudyInitialIndex(saved.index);
+    setStudyInitialRevealed(saved.showMeaning);
+    setStudyRunId((value) => value + 1);
+    setSaveMessage("");
+    setView("study");
+    setRestorePending(false);
+  }, [authReady, libraries, librariesReady, restorePending]);
 
   const handleSignIn = async (email, password) => {
     setCloudBusy(true);
@@ -794,6 +906,9 @@ export default function App() {
   };
 
   const handleSignOut = async () => {
+    saveHomeSession();
+    setRestorePending(false);
+    setView("upload");
     setCloudBusy(true);
     const { error: authError } = await supabase.auth.signOut();
     if (authError) setAccountMessage(authError.message);
@@ -826,6 +941,7 @@ export default function App() {
       setStarredWordIds([]);
       setStudyWords([]);
       setSaveMessage("");
+      saveHomeSession();
       setView("list");
     } catch (uploadError) {
       setError(uploadError.message || "文档解析失败，请换一个文件重试。");
@@ -835,6 +951,7 @@ export default function App() {
   };
 
   const reset = () => {
+    saveHomeSession();
     setWords([]);
     setFileName("");
     setError("");
@@ -858,12 +975,14 @@ export default function App() {
   };
 
   const openLibrary = (library, startImmediately = false) => {
+    saveHomeSession();
     setWords(library.words);
     setFileName("已保存词库");
     setCurrentLibraryId(library.id);
     setDraftLibraryName(library.name);
     setStarredWordIds(library.starredWordIds);
     setStudyWords([]);
+    setStudyInitialRevealed(false);
     setSaveMessage("");
     setView(startImmediately ? "mode" : "list");
   };
@@ -992,6 +1111,7 @@ export default function App() {
       : [...starredWordIds, wordId];
 
     if (!currentLibraryId) {
+      starredWordIdsRef.current = nextStarredWordIds;
       setStarredWordIds(nextStarredWordIds);
       return;
     }
@@ -1003,6 +1123,7 @@ export default function App() {
     ));
     if (isCloudMode) {
       setLibraries(nextLibraries);
+      starredWordIdsRef.current = nextStarredWordIds;
       setStarredWordIds(nextStarredWordIds);
       updateCloudWord(session.user.id, currentLibraryId, wordId, {
         starred: nextStarredWordIds.includes(wordId),
@@ -1012,6 +1133,7 @@ export default function App() {
       return;
     }
     if (commitLibraries(nextLibraries)) {
+      starredWordIdsRef.current = nextStarredWordIds;
       setStarredWordIds(nextStarredWordIds);
     }
   };
@@ -1022,6 +1144,7 @@ export default function App() {
     ));
 
     if (!currentLibraryId) {
+      wordsRef.current = nextWords;
       setWords(nextWords);
       return true;
     }
@@ -1034,6 +1157,7 @@ export default function App() {
 
     if (isCloudMode) {
       setLibraries(nextLibraries);
+      wordsRef.current = nextWords;
       setWords(nextWords);
       updateCloudWord(session.user.id, currentLibraryId, wordId, {
         mastered: true,
@@ -1044,20 +1168,44 @@ export default function App() {
     }
 
     if (!commitLibraries(nextLibraries)) return false;
+    wordsRef.current = nextWords;
     setWords(nextWords);
     return true;
   };
 
   const saveProgress = (sessionIndex, wordId) => {
     if (!currentLibraryId) return;
-    const wordIndex = words.findIndex((word) => word.id === wordId);
+    const currentWords = wordsRef.current;
+    const wordIndex = currentWords.findIndex((word) => word.id === wordId);
     const lastIndex = wordIndex >= 0 ? wordIndex : sessionIndex;
-    const nextLibraries = libraries.map((library) => (
+    const restoredWords = getWordsForMode(
+      currentWords,
+      starredWordIdsRef.current,
+      studyMode,
+    );
+    const restoredIndex = restoredWords.findIndex((word) => word.id === wordId);
+    const reviewIndex = restoredIndex >= 0 ? restoredIndex : sessionIndex;
+    const nextLibraries = librariesRef.current.map((library) => (
       library.id === currentLibraryId
         ? { ...library, lastIndex }
         : library
     ));
+    librariesRef.current = nextLibraries;
+    if (!isCloudMode) {
+      try {
+        persistLibraries(nextLibraries);
+      } catch {
+        setSaveMessage("进度保存失败：浏览器本地存储空间不足或不可用。");
+      }
+    }
     setLibraries(nextLibraries);
+    saveAppSession({
+      screen: "review",
+      listId: currentLibraryId,
+      mode: studyMode,
+      index: reviewIndex,
+      showMeaning: false,
+    });
     if (isCloudMode) {
       saveCloudProgress(
         session.user.id,
@@ -1066,8 +1214,46 @@ export default function App() {
       ).catch((cloudError) => {
         setAccountMessage(`进度同步失败：${cloudError.message}`);
       });
-    } else {
-      persistLibraries(nextLibraries);
+    }
+  };
+
+  const saveMeaningState = (sessionIndex, wordId, showMeaning) => {
+    if (!currentLibraryId) return;
+    const restoredWords = getWordsForMode(
+      wordsRef.current,
+      starredWordIdsRef.current,
+      studyMode,
+    );
+    const restoredIndex = restoredWords.findIndex((word) => word.id === wordId);
+    saveAppSession({
+      screen: "review",
+      listId: currentLibraryId,
+      mode: studyMode,
+      index: restoredIndex >= 0 ? restoredIndex : sessionIndex,
+      showMeaning,
+    });
+  };
+
+  const resetCurrentProgress = () => {
+    if (!currentLibraryId) return;
+    const nextLibraries = librariesRef.current.map((library) => (
+      library.id === currentLibraryId
+        ? { ...library, lastIndex: 0 }
+        : library
+    ));
+    librariesRef.current = nextLibraries;
+    if (!isCloudMode) {
+      try {
+        persistLibraries(nextLibraries);
+      } catch {
+        setSaveMessage("进度保存失败：浏览器本地存储空间不足或不可用。");
+      }
+    }
+    setLibraries(nextLibraries);
+    if (isCloudMode) {
+      saveCloudProgress(session.user.id, currentLibraryId, 0).catch((cloudError) => {
+        setAccountMessage(`进度同步失败：${cloudError.message}`);
+      });
     }
   };
 
@@ -1117,40 +1303,67 @@ export default function App() {
     }
   };
 
-  const startStudy = (mode) => {
-    let selectedWords = words;
-
-    if (mode === "unmastered") {
-      selectedWords = words.filter((word) => !word.mastered);
-    }
-    if (mode === "mastered") {
-      selectedWords = words.filter((word) => word.mastered);
-    }
-    if (mode === "starred") {
-      selectedWords = words.filter((word) => starredWordIds.includes(word.id));
-    }
-
+  const startStudy = (mode, restart = false) => {
+    const selectedWords = getWordsForMode(words, starredWordIds, mode);
     if (!selectedWords.length) return;
-    setStudyWords(selectedWords);
     const currentLibrary = libraries.find(
       (library) => library.id === currentLibraryId,
     );
-    setStudyInitialIndex(
-      mode === "all" ? (currentLibrary?.lastIndex || 0) : 0,
-    );
+    const maximumBaseIndex = Math.max(0, words.length - 1);
+    const baseIndex = restart
+      ? 0
+      : Math.max(0, Math.min(maximumBaseIndex, currentLibrary?.lastIndex || 0));
+    const baseWordId = words[baseIndex]?.id;
+    let initialIndex = mode === "all"
+      ? baseIndex
+      : selectedWords.findIndex((word) => word.id === baseWordId);
+
+    if (initialIndex < 0) {
+      initialIndex = selectedWords.findIndex(
+        (word) => words.findIndex((item) => item.id === word.id) >= baseIndex,
+      );
+    }
+    if (initialIndex < 0) initialIndex = selectedWords.length - 1;
+
+    if (restart) resetCurrentProgress();
+    setStudyWords(selectedWords);
+    setStudyMode(mode);
+    setStudyInitialIndex(initialIndex);
+    setStudyInitialRevealed(false);
+    setStudyRunId((value) => value + 1);
+    if (currentLibraryId) {
+      saveAppSession({
+        screen: "review",
+        listId: currentLibraryId,
+        mode,
+        index: initialIndex,
+        showMeaning: false,
+      });
+    }
     setView("study");
   };
+
+  if (restorePending && (!authReady || !librariesReady)) {
+    return <RestoreLoadingView />;
+  }
 
   if (view === "study" && studyWords.length) {
     return (
       <StudyView
+        key={studyRunId}
         words={studyWords}
         starredWordIds={starredWordIds}
         onToggleStar={toggleStar}
         onMaster={masterWord}
         initialIndex={studyInitialIndex}
+        initialRevealed={studyInitialRevealed}
         onProgress={saveProgress}
-        onExit={() => setView("list")}
+        onMeaningChange={saveMeaningState}
+        onExit={() => {
+          saveHomeSession();
+          setView("list");
+        }}
+        onRestart={() => startStudy(studyMode, true)}
         onReset={reset}
       />
     );

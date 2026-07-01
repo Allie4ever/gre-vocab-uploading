@@ -621,6 +621,15 @@ p {
   user-select: none;
 }
 
+.restore-loading {
+  min-height: 100dvh;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  color: #777;
+  font-size: 14px;
+}
+
 .study-header {
   width: min(100%, 900px);
   display: flex;

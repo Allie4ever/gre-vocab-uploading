@@ -7,6 +7,8 @@ function throwIfError(error) {
 function mapLibrary(row) {
   const orderedWords = [...(row.vocab_words || [])]
     .sort((a, b) => a.word_order - b.word_order);
+  const storedLastIndex = row.vocab_progress?.[0]?.last_index;
+  const maximumIndex = Math.max(0, orderedWords.length - 1);
 
   return {
     id: row.id,
@@ -21,7 +23,9 @@ function mapLibrary(row) {
     starredWordIds: orderedWords
       .filter((word) => word.starred)
       .map((word) => word.id),
-    lastIndex: row.vocab_progress?.[0]?.last_index || 0,
+    lastIndex: Number.isInteger(storedLastIndex)
+      ? Math.max(0, Math.min(maximumIndex, storedLastIndex))
+      : 0,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
