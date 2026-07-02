@@ -240,36 +240,61 @@ function UploadView({
               <span>{libraries.length} 个</span>
             </div>
             <div className="library-list">
-              {libraries.map((library) => (
-                <article className="library-row" key={library.id}>
-                  <button
-                    className="library-main"
-                    type="button"
-                    onClick={() => onOpenLibrary(library)}
-                  >
-                    <strong>{library.name}</strong>
-                    <span>{library.words.length} 个单词</span>
-                    <span className="library-star-count">
-                      ★ 重点词 {library.starredWordIds.length}
-                    </span>
-                    <span className="library-mastered-count">
-                      ◆ 已掌握 {countMastered(library.words)}
-                    </span>
-                    <span>
-                      剩余 {library.words.length - countMastered(library.words)} 个
-                    </span>
-                    <span>更新于 {formatUpdatedAt(library.updatedAt)}</span>
-                  </button>
-                  <div className="library-actions">
-                    <button type="button" onClick={() => onStartLibrary(library)}>
-                      开始背词
+              {libraries.map((library) => {
+                const masteredCount = countMastered(library.words);
+                const totalWords = library.words.length;
+                const percent = totalWords > 0
+                  ? Math.round((masteredCount / totalWords) * 100)
+                  : 0;
+
+                return (
+                  <article className="library-row" key={library.id}>
+                    <button
+                      className="library-main"
+                      type="button"
+                      onClick={() => onOpenLibrary(library)}
+                    >
+                      <strong>{library.name}</strong>
+                      <div className="library-stats">
+                        <span>{totalWords} 个单词</span>
+                        <span className="library-star-count">
+                          ★ 重点词 {library.starredWordIds.length}
+                        </span>
+                        <span className="library-mastered-count">
+                          ◆ 已掌握 {masteredCount}
+                        </span>
+                      </div>
+                      <div className="library-progress">
+                        <div className="library-progress-summary">
+                          <span>已掌握 {masteredCount} / {totalWords}</span>
+                          <span>{percent}%</span>
+                        </div>
+                        <div
+                          className="library-progress-track"
+                          role="progressbar"
+                          aria-label={`${library.name} 掌握进度`}
+                          aria-valuemin="0"
+                          aria-valuemax="100"
+                          aria-valuenow={percent}
+                        >
+                          <span style={{ width: `${percent}%` }} />
+                        </div>
+                      </div>
+                      <span className="library-updated">
+                        更新于 {formatUpdatedAt(library.updatedAt)}
+                      </span>
                     </button>
-                    <button type="button" onClick={() => onDeleteLibrary(library)}>
-                      删除
-                    </button>
-                  </div>
-                </article>
-              ))}
+                    <div className="library-actions">
+                      <button type="button" onClick={() => onStartLibrary(library)}>
+                        开始背词
+                      </button>
+                      <button type="button" onClick={() => onDeleteLibrary(library)}>
+                        删除
+                      </button>
+                    </div>
+                  </article>
+                );
+              })}
             </div>
           </section>
         )}
