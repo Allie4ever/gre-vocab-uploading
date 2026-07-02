@@ -228,7 +228,7 @@ function UploadView({
               手动添加生词
             </button>
           </div>
-          <p className="format-note">每行一个单词或词组：英文在前，中文释义在后</p>
+          <p className="format-note">选择一种方式创建你的词库</p>
           {error && <p className="error-message" role="alert">{error}</p>}
         </section>
 
