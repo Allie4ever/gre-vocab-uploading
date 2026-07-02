@@ -58,7 +58,13 @@ export async function fetchCloudLibraries(userId) {
   return (data || []).map(mapLibrary);
 }
 
-async function insertWords(listId, userId, words, starredWordIds = []) {
+async function insertWords(
+  listId,
+  userId,
+  words,
+  starredWordIds = [],
+  orderOffset = 0,
+) {
   if (!words.length) return [];
   const starred = new Set(starredWordIds);
   const rows = words.map((word, index) => ({
@@ -69,7 +75,7 @@ async function insertWords(listId, userId, words, starredWordIds = []) {
     equivalent: word.equivalent || null,
     starred: starred.has(word.id),
     mastered: word.mastered === true,
-    word_order: index,
+    word_order: orderOffset + index,
   }));
   const { data, error } = await supabase
     .from("vocab_words")
@@ -111,6 +117,40 @@ export async function replaceCloudLibrary(userId, listId, library) {
   await saveCloudProgress(userId, listId, library.lastIndex || 0);
   const libraries = await fetchCloudLibraries(userId);
   return libraries.find((item) => item.id === listId);
+}
+
+export async function appendCloudWords(userId, library, words) {
+  // Touch the parent list so it moves to the top of "My libraries".
+  const { error } = await supabase
+    .from("vocab_lists")
+    .update({ name: library.name })
+    .eq("id", library.id)
+    .eq("user_id", userId);
+  throwIfError(error);
+
+  const insertedWords = await insertWords(
+    library.id,
+    userId,
+    words,
+    [],
+    library.words.length,
+  );
+
+  const appendedWords = insertedWords
+    .sort((a, b) => a.word_order - b.word_order)
+    .map((word) => ({
+      id: word.id,
+      word: word.word,
+      meaning: word.meaning,
+      equivalent: word.equivalent || "",
+      mastered: word.mastered === true,
+    }));
+
+  return {
+    ...library,
+    words: [...library.words, ...appendedWords],
+    updatedAt: new Date().toISOString(),
+  };
 }
 
 export async function deleteCloudLibrary(userId, listId) {

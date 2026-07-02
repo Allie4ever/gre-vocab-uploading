@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import mammoth from "mammoth";
 import {
+  appendCloudWords,
   createCloudLibrary,
   deleteCloudLibrary,
   fetchCloudLibraries,
@@ -16,6 +17,7 @@ import {
 } from "./libraryStorage";
 import { isSupabaseConfigured, supabase } from "./lib/supabase";
 import { parseVocabulary } from "./parser";
+import { createManualWords } from "./manualVocabulary";
 import {
   loadAppSession,
   saveAppSession,
@@ -180,6 +182,7 @@ function MigrationNotice({
 
 function UploadView({
   onUpload,
+  onManualAdd,
   loading,
   error,
   libraries,
@@ -207,14 +210,24 @@ function UploadView({
             accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
             onChange={(event) => onUpload(event.target.files?.[0])}
           />
-          <button
-            className="primary-button upload-button"
-            type="button"
-            disabled={loading}
-            onClick={() => inputRef.current?.click()}
-          >
-            {loading ? "正在解析…" : "选择 .docx 文件"}
-          </button>
+          <div className="import-actions">
+            <button
+              className="primary-button upload-button"
+              type="button"
+              disabled={loading}
+              onClick={() => inputRef.current?.click()}
+            >
+              {loading ? "正在解析…" : "选择 .docx 文件"}
+            </button>
+            <button
+              className="secondary-button manual-import-button"
+              type="button"
+              disabled={loading}
+              onClick={onManualAdd}
+            >
+              手动添加生词
+            </button>
+          </div>
           <p className="format-note">每行一个单词或词组：英文在前，中文释义在后</p>
           {error && <p className="error-message" role="alert">{error}</p>}
         </section>
@@ -261,6 +274,206 @@ function UploadView({
           </section>
         )}
       </div>
+    </main>
+  );
+}
+
+function createManualRow() {
+  return {
+    id:
+      globalThis.crypto?.randomUUID?.()
+      || `row-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+    word: "",
+    meaning: "",
+  };
+}
+
+function ManualAddView({
+  libraries,
+  busy,
+  onSave,
+  onCancel,
+}) {
+  const [rows, setRows] = useState(() => [createManualRow()]);
+  const [destination, setDestination] = useState("new");
+  const [libraryName, setLibraryName] = useState("");
+  const [targetLibraryId, setTargetLibraryId] = useState(libraries[0]?.id || "");
+  const [message, setMessage] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+
+  const updateRow = (id, field, value) => {
+    setRows((items) => items.map((row) => (
+      row.id === id ? { ...row, [field]: value } : row
+    )));
+    setMessage("");
+  };
+
+  const handleSubmit = async (event) => {
+    event.preventDefault();
+    setMessage("");
+
+    if (rows.some((row) => !row.word.trim() || !row.meaning.trim())) {
+      setMessage("每一行的英文单词和中文释义都必须填写。");
+      return;
+    }
+    if (destination === "new" && !libraryName.trim()) {
+      setMessage("请输入新词库名称。");
+      return;
+    }
+    if (destination === "existing" && !targetLibraryId) {
+      setMessage("请选择要加入的词库。");
+      return;
+    }
+
+    setSubmitting(true);
+    const saveError = await onSave({
+      entries: rows,
+      destination,
+      libraryName,
+      targetLibraryId,
+    });
+    if (saveError) {
+      setMessage(saveError);
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <main className="manual-page">
+      <form className="manual-panel" onSubmit={handleSubmit}>
+        <header className="manual-header">
+          <div>
+            <p className="eyebrow">生词录入</p>
+            <h1>手动添加生词</h1>
+          </div>
+          <button className="text-button" type="button" onClick={onCancel}>
+            返回首页
+          </button>
+        </header>
+
+        <section className="manual-rows" aria-label="待添加单词">
+          {rows.map((row, index) => (
+            <div className="manual-row" key={row.id}>
+              <span className="manual-row-number">{index + 1}</span>
+              <input
+                type="text"
+                value={row.word}
+                placeholder="英文单词"
+                aria-label={`第 ${index + 1} 行英文单词`}
+                autoCapitalize="none"
+                autoCorrect="off"
+                onChange={(event) => updateRow(row.id, "word", event.target.value)}
+              />
+              <input
+                type="text"
+                value={row.meaning}
+                placeholder="中文释义"
+                aria-label={`第 ${index + 1} 行中文释义`}
+                onChange={(event) => updateRow(row.id, "meaning", event.target.value)}
+              />
+              <button
+                className="manual-delete"
+                type="button"
+                disabled={rows.length === 1}
+                aria-label={`删除第 ${index + 1} 行`}
+                onClick={() => {
+                  setRows((items) => items.filter((item) => item.id !== row.id));
+                  setMessage("");
+                }}
+              >
+                删除
+              </button>
+            </div>
+          ))}
+        </section>
+
+        <button
+          className="manual-add-row"
+          type="button"
+          onClick={() => {
+            setRows((items) => [...items, createManualRow()]);
+            setMessage("");
+          }}
+        >
+          ＋ 添加一行
+        </button>
+
+        <section className="manual-destination" aria-labelledby="save-target-title">
+          <h2 id="save-target-title">保存到</h2>
+          <div className="destination-options">
+            <label>
+              <input
+                type="radio"
+                name="destination"
+                value="new"
+                checked={destination === "new"}
+                onChange={() => {
+                  setDestination("new");
+                  setMessage("");
+                }}
+              />
+              新建词库
+            </label>
+            <label className={!libraries.length ? "is-disabled" : ""}>
+              <input
+                type="radio"
+                name="destination"
+                value="existing"
+                disabled={!libraries.length}
+                checked={destination === "existing"}
+                onChange={() => {
+                  setDestination("existing");
+                  setMessage("");
+                }}
+              />
+              加入已有词库
+            </label>
+          </div>
+
+          {destination === "new" ? (
+            <input
+              className="manual-library-input"
+              type="text"
+              value={libraryName}
+              maxLength={60}
+              placeholder="输入新词库名称"
+              aria-label="新词库名称"
+              onChange={(event) => {
+                setLibraryName(event.target.value);
+                setMessage("");
+              }}
+            />
+          ) : (
+            <select
+              className="manual-library-input"
+              value={targetLibraryId}
+              aria-label="选择已有词库"
+              onChange={(event) => {
+                setTargetLibraryId(event.target.value);
+                setMessage("");
+              }}
+            >
+              {libraries.map((library) => (
+                <option key={library.id} value={library.id}>
+                  {library.name}（{library.words.length} 词）
+                </option>
+              ))}
+            </select>
+          )}
+        </section>
+
+        <footer className="manual-footer">
+          <p>将添加 <strong>{rows.length}</strong> 个单词</p>
+          <button
+            className="primary-button compact-button"
+            type="submit"
+            disabled={busy || submitting}
+          >
+            {busy || submitting ? "正在保存…" : "保存生词"}
+          </button>
+        </footer>
+        {message && <p className="error-message" role="alert">{message}</p>}
+      </form>
     </main>
   );
 }
@@ -987,6 +1200,88 @@ export default function App() {
     setView(startImmediately ? "mode" : "list");
   };
 
+  const saveManualWords = async ({
+    entries,
+    destination,
+    libraryName,
+    targetLibraryId,
+  }) => {
+    try {
+      const manualWords = createManualWords(entries);
+      let savedLibrary;
+
+      if (destination === "new") {
+        const trimmedName = libraryName.trim();
+        if (!trimmedName) return "请输入新词库名称。";
+        if (librariesRef.current.some((library) => library.name.trim() === trimmedName)) {
+          return "该词库名称已存在，请换一个名称或选择“加入已有词库”。";
+        }
+
+        const created = createLibrary(trimmedName, manualWords);
+        if (isCloudMode) {
+          setCloudBusy(true);
+          savedLibrary = await createCloudLibrary(session.user.id, created);
+          const nextLibraries = [savedLibrary, ...librariesRef.current];
+          librariesRef.current = nextLibraries;
+          setLibraries(nextLibraries);
+        } else {
+          const nextLibraries = [created, ...librariesRef.current];
+          if (!commitLibraries(nextLibraries)) {
+            return "保存失败：浏览器本地存储空间不足或不可用。";
+          }
+          librariesRef.current = nextLibraries;
+          savedLibrary = created;
+        }
+      } else {
+        const targetLibrary = librariesRef.current.find(
+          (library) => library.id === targetLibraryId,
+        );
+        if (!targetLibrary) return "没有找到所选词库，请返回后重试。";
+
+        if (isCloudMode) {
+          setCloudBusy(true);
+          savedLibrary = await appendCloudWords(
+            session.user.id,
+            targetLibrary,
+            manualWords,
+          );
+          const nextLibraries = librariesRef.current
+            .map((library) => (
+              library.id === savedLibrary.id ? savedLibrary : library
+            ))
+            .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+          librariesRef.current = nextLibraries;
+          setLibraries(nextLibraries);
+        } else {
+          savedLibrary = updateLibrary(
+            targetLibrary,
+            targetLibrary.name,
+            [...targetLibrary.words, ...manualWords],
+          );
+          const nextLibraries = librariesRef.current
+            .map((library) => (
+              library.id === savedLibrary.id ? savedLibrary : library
+            ))
+            .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+          if (!commitLibraries(nextLibraries)) {
+            return "保存失败：浏览器本地存储空间不足或不可用。";
+          }
+          librariesRef.current = nextLibraries;
+        }
+      }
+
+      openLibrary(savedLibrary, false);
+      setSaveMessage(
+        `已添加 ${manualWords.length} 个生词到“${savedLibrary.name}”。`,
+      );
+      return null;
+    } catch (manualError) {
+      return `保存失败：${manualError.message || "请稍后重试。"}`;
+    } finally {
+      if (isCloudMode) setCloudBusy(false);
+    }
+  };
+
   const saveCurrentLibrary = async (name, forceOverwrite = false) => {
     const trimmedName = name.trim();
     if (!trimmedName) {
@@ -1369,6 +1664,20 @@ export default function App() {
     );
   }
 
+  if (view === "manual") {
+    return (
+      <ManualAddView
+        libraries={libraries}
+        busy={cloudBusy}
+        onSave={saveManualWords}
+        onCancel={() => {
+          saveHomeSession();
+          setView("upload");
+        }}
+      />
+    );
+  }
+
   if (view === "mode" && words.length) {
     return (
       <StudyModeView
@@ -1404,6 +1713,10 @@ export default function App() {
   return (
     <UploadView
       onUpload={handleUpload}
+      onManualAdd={() => {
+        saveHomeSession();
+        setView("manual");
+      }}
       loading={loading}
       error={error}
       libraries={libraries}

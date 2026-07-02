@@ -86,3 +86,47 @@ test("clamps a saved lastIndex to the current library bounds", () => {
 
   assert.equal(loadLibraries(storage)[0].lastIndex, 1);
 });
+
+test("appending words preserves existing progress, stars, and mastery", () => {
+  const original = {
+    id: "library-1",
+    name: "GRE 生词",
+    words: [
+      {
+        id: "word-0",
+        word: "lucid",
+        meaning: "清晰的",
+        mastered: true,
+      },
+      {
+        id: "word-1",
+        word: "arduous",
+        meaning: "艰难的",
+        mastered: false,
+      },
+    ],
+    starredWordIds: ["word-0"],
+    lastIndex: 1,
+    createdAt: "2026-06-28T00:00:00.000Z",
+    updatedAt: "2026-06-28T00:00:00.000Z",
+  };
+  const appended = updateLibrary(
+    original,
+    original.name,
+    [
+      ...original.words,
+      {
+        id: "word-2",
+        word: "recoil from",
+        meaning: "畏缩",
+        mastered: false,
+      },
+    ],
+    "2026-07-02T00:00:00.000Z",
+  );
+
+  assert.equal(appended.words.length, 3);
+  assert.equal(appended.words[0].mastered, true);
+  assert.deepEqual(appended.starredWordIds, ["word-0"]);
+  assert.equal(appended.lastIndex, 1);
+});
