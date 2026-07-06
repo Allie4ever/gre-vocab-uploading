@@ -1022,6 +1022,7 @@ export default function App() {
   starredWordIdsRef.current = starredWordIds;
   librariesRef.current = libraries;
   const isCloudMode = Boolean(session && supabase);
+  const cloudUserId = session?.user?.id || null;
   const localLibraries = loadLibraries();
   const hasMigrationConflicts = localLibraries.some((localLibrary) => (
     libraries.some(
@@ -1040,7 +1041,6 @@ export default function App() {
     const { data } = supabase.auth.onAuthStateChange((event, nextSession) => {
       setSession(nextSession);
       setAuthReady(true);
-      if (event === "SIGNED_IN") setLibrariesReady(false);
       if (event === "SIGNED_OUT") {
         setMigrationDismissed(false);
         setRestorePending(false);
@@ -1057,23 +1057,21 @@ export default function App() {
   useEffect(() => {
     if (!authReady) return undefined;
 
-    if (!session) {
+    if (!cloudUserId) {
       setLibraries(loadLibraries());
       setLibrariesReady(true);
       return undefined;
     }
 
     let active = true;
-    setLibraries([]);
     setLibrariesReady(false);
     setCloudBusy(true);
-    fetchCloudLibraries(session.user.id)
+    fetchCloudLibraries(cloudUserId)
       .then((cloudLibraries) => {
         if (active) setLibraries(cloudLibraries);
       })
       .catch((cloudError) => {
         if (active) setAccountMessage(`云端读取失败：${cloudError.message}`);
-        if (active) setLibraries([]);
       })
       .finally(() => {
         if (active) {
@@ -1082,7 +1080,7 @@ export default function App() {
         }
       });
     return () => { active = false; };
-  }, [authReady, session]);
+  }, [authReady, cloudUserId]);
 
   useEffect(() => {
     if (!restorePending || !authReady || !librariesReady) return;
