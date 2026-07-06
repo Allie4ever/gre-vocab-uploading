@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   LIBRARY_STORAGE_KEY,
   createLibrary,
+  filterNewWords,
   loadLibraries,
   persistLibraries,
   updateLibrary,
@@ -129,4 +130,21 @@ test("appending words preserves existing progress, stars, and mastery", () => {
   assert.equal(appended.words[0].mastered, true);
   assert.deepEqual(appended.starredWordIds, ["word-0"]);
   assert.equal(appended.lastIndex, 1);
+});
+
+test("filters duplicate uploaded words while preserving existing entries", () => {
+  const existingWords = [
+    { id: "existing-lucid", word: "lucid", meaning: "原有释义" },
+  ];
+  const incomingWords = [
+    { id: "new-lucid", word: "lucid", meaning: "新的释义" },
+    { id: "new-arduous", word: "arduous", meaning: "艰难的" },
+    { id: "duplicate-arduous", word: "arduous", meaning: "困难的" },
+  ];
+
+  assert.deepEqual(
+    filterNewWords(existingWords, incomingWords),
+    [{ id: "new-arduous", word: "arduous", meaning: "艰难的" }],
+  );
+  assert.equal(existingWords[0].meaning, "原有释义");
 });

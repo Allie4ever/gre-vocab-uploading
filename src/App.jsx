@@ -11,6 +11,7 @@ import {
 } from "./cloudStorage";
 import {
   createLibrary,
+  filterNewWords,
   loadLibraries,
   persistLibraries,
   updateLibrary,
@@ -507,15 +508,19 @@ function ListView({
   words,
   fileName,
   initialLibraryName,
-  canOverwrite,
+  libraries,
+  busy,
   saveMessage,
   onNameChange,
   onSave,
-  onOverwrite,
+  onAppend,
   onStart,
   onReset,
 }) {
   const [libraryName, setLibraryName] = useState(initialLibraryName);
+  const [showLibraryPicker, setShowLibraryPicker] = useState(false);
+  const [targetLibraryId, setTargetLibraryId] = useState(libraries[0]?.id || "");
+  const [appending, setAppending] = useState(false);
 
   const handleNameChange = (event) => {
     setLibraryName(event.target.value);
@@ -550,15 +555,53 @@ function ListView({
           <button
             className="secondary-button"
             type="button"
-            disabled={!canOverwrite}
-            onClick={() => onOverwrite(libraryName)}
+            disabled={!libraries.length}
+            onClick={() => setShowLibraryPicker(true)}
           >
-            覆盖已有词库
+            添加到现有词库
           </button>
           <button className="primary-button compact-button" type="button" onClick={onStart}>
             开始快速背词
           </button>
         </div>
+        {showLibraryPicker && (
+          <div className="existing-library-picker">
+            <label htmlFor="existing-library">选择要添加到的词库</label>
+            <select
+              id="existing-library"
+              value={targetLibraryId}
+              onChange={(event) => setTargetLibraryId(event.target.value)}
+            >
+              {libraries.map((library) => (
+                <option key={library.id} value={library.id}>
+                  {library.name}（{library.words.length} 词）
+                </option>
+              ))}
+            </select>
+            <div>
+              <button
+                className="primary-button compact-button"
+                type="button"
+                disabled={busy || appending || !targetLibraryId}
+                onClick={async () => {
+                  setAppending(true);
+                  const appended = await onAppend(targetLibraryId);
+                  if (!appended) setAppending(false);
+                }}
+              >
+                {busy || appending ? "正在添加…" : "确认添加"}
+              </button>
+              <button
+                className="secondary-button"
+                type="button"
+                disabled={busy || appending}
+                onClick={() => setShowLibraryPicker(false)}
+              >
+                取消
+              </button>
+            </div>
+          </div>
+        )}
         {saveMessage && <p className="save-message" role="status">{saveMessage}</p>}
       </section>
 
@@ -1305,7 +1348,7 @@ export default function App() {
     }
   };
 
-  const saveCurrentLibrary = async (name, forceOverwrite = false) => {
+  const saveCurrentLibrary = async (name) => {
     const trimmedName = name.trim();
     if (!trimmedName) {
       setSaveMessage("请先输入词库名称。");
@@ -1315,59 +1358,8 @@ export default function App() {
     const sameNameLibrary = libraries.find(
       (library) => library.name.trim() === trimmedName,
     );
-    const currentLibrary = libraries.find(
-      (library) => library.id === currentLibraryId,
-    );
-    const overwriteTarget = sameNameLibrary || (forceOverwrite ? currentLibrary : null);
-
-    if (forceOverwrite && !overwriteTarget) {
-      setSaveMessage("没有找到可覆盖的词库，请先用该名称保存。");
-      return;
-    }
-
-    if (overwriteTarget) {
-      const confirmed = window.confirm(`“${overwriteTarget.name}”已经存在，确定覆盖吗？`);
-      if (!confirmed) {
-        setSaveMessage("未覆盖，请修改名称后再保存。");
-        return;
-      }
-
-      const wordIds = new Set(words.map((word) => word.id));
-      const updated = {
-        ...updateLibrary(overwriteTarget, trimmedName, words),
-        starredWordIds: starredWordIds.filter((id) => wordIds.has(id)),
-      };
-      if (isCloudMode) {
-        setCloudBusy(true);
-        try {
-          const cloudLibrary = await replaceCloudLibrary(
-            session.user.id,
-            overwriteTarget.id,
-            updated,
-          );
-          setLibraries((items) => items
-            .map((item) => (item.id === cloudLibrary.id ? cloudLibrary : item))
-            .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)));
-          setWords(cloudLibrary.words);
-          setStarredWordIds(cloudLibrary.starredWordIds);
-          setCurrentLibraryId(cloudLibrary.id);
-          setSaveMessage(`已同步“${cloudLibrary.name}”。`);
-        } catch (cloudError) {
-          setSaveMessage(`云端保存失败：${cloudError.message}`);
-        } finally {
-          setCloudBusy(false);
-        }
-        return;
-      }
-      const nextLibraries = libraries
-        .map((library) => (library.id === updated.id ? updated : library))
-        .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
-
-      if (commitLibraries(nextLibraries)) {
-        setCurrentLibraryId(updated.id);
-        setDraftLibraryName(updated.name);
-        setSaveMessage(`已覆盖“${updated.name}”。`);
-      }
+    if (sameNameLibrary) {
+      setSaveMessage("该词库名称已存在，请换一个名称或选择“添加到现有词库”。");
       return;
     }
 
@@ -1400,6 +1392,58 @@ export default function App() {
     }
   };
 
+  const appendUploadedWords = async (targetLibraryId) => {
+    const targetLibrary = librariesRef.current.find(
+      (library) => library.id === targetLibraryId,
+    );
+    if (!targetLibrary) {
+      setSaveMessage("没有找到所选词库，请重新选择。");
+      return false;
+    }
+
+    const newWords = filterNewWords(targetLibrary.words, words);
+    let updatedLibrary;
+
+    if (isCloudMode) {
+      setCloudBusy(true);
+      try {
+        updatedLibrary = await appendCloudWords(
+          session.user.id,
+          targetLibrary,
+          newWords,
+        );
+        const nextLibraries = librariesRef.current
+          .map((library) => (
+            library.id === updatedLibrary.id ? updatedLibrary : library
+          ))
+          .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+        librariesRef.current = nextLibraries;
+        setLibraries(nextLibraries);
+      } catch (cloudError) {
+        setSaveMessage(`云端添加失败：${cloudError.message}`);
+        return false;
+      } finally {
+        setCloudBusy(false);
+      }
+    } else {
+      updatedLibrary = updateLibrary(
+        targetLibrary,
+        targetLibrary.name,
+        [...targetLibrary.words, ...newWords],
+      );
+      const nextLibraries = librariesRef.current
+        .map((library) => (
+          library.id === updatedLibrary.id ? updatedLibrary : library
+        ))
+        .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+      if (!commitLibraries(nextLibraries)) return false;
+      librariesRef.current = nextLibraries;
+    }
+
+    reset();
+    return true;
+  };
+
   const deleteLibrary = async (library) => {
     const confirmed = window.confirm(`确定删除词库“${library.name}”吗？`);
     if (!confirmed) return;
@@ -1417,11 +1461,6 @@ export default function App() {
     }
     commitLibraries(libraries.filter((item) => item.id !== library.id));
   };
-
-  const overwriteTargetExists = Boolean(
-    libraries.find((library) => library.id === currentLibraryId)
-    || libraries.find((library) => library.name.trim() === draftLibraryName.trim()),
-  );
 
   const toggleStar = (wordId) => {
     const nextStarredWordIds = starredWordIds.includes(wordId)
@@ -1719,14 +1758,15 @@ export default function App() {
         words={words}
         fileName={fileName}
         initialLibraryName={draftLibraryName}
-        canOverwrite={overwriteTargetExists}
+        libraries={libraries}
+        busy={cloudBusy}
         saveMessage={saveMessage}
         onNameChange={(name) => {
           setDraftLibraryName(name);
           setSaveMessage("");
         }}
-        onSave={(name) => saveCurrentLibrary(name, false)}
-        onOverwrite={(name) => saveCurrentLibrary(name, true)}
+        onSave={saveCurrentLibrary}
+        onAppend={appendUploadedWords}
         onStart={() => setView("mode")}
         onReset={reset}
       />

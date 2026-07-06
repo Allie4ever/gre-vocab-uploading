@@ -45,6 +45,16 @@ export function persistLibraries(libraries, storage = globalThis.localStorage) {
   storage.setItem(LIBRARY_STORAGE_KEY, JSON.stringify(libraries));
 }
 
+export function filterNewWords(existingWords, incomingWords) {
+  const seenWords = new Set(existingWords.map((word) => word.word));
+
+  return incomingWords.filter((word) => {
+    if (seenWords.has(word.word)) return false;
+    seenWords.add(word.word);
+    return true;
+  });
+}
+
 export function createLibrary(name, words, now = new Date().toISOString()) {
   const id =
     globalThis.crypto?.randomUUID?.()
