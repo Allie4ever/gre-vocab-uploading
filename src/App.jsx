@@ -81,6 +81,107 @@ function RestoreLoadingView() {
   );
 }
 
+function WordEditModal({
+  word,
+  busy,
+  onSave,
+  onCancel,
+}) {
+  const [english, setEnglish] = useState(word.word);
+  const [meaning, setMeaning] = useState(word.meaning);
+  const [message, setMessage] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  const handleSubmit = async (event) => {
+    event.preventDefault();
+    const trimmedEnglish = english.trim();
+    const trimmedMeaning = meaning.trim();
+
+    if (!trimmedEnglish || !trimmedMeaning) {
+      setMessage("英文单词和中文释义都不能为空。");
+      return;
+    }
+
+    setSaving(true);
+    setMessage("");
+    const saveError = await onSave(word.id, {
+      word: trimmedEnglish,
+      meaning: trimmedMeaning,
+    });
+    if (saveError) {
+      setMessage(saveError);
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div
+      className="modal-backdrop"
+      role="presentation"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget && !saving && !busy) {
+          onCancel();
+        }
+      }}
+    >
+      <form
+        className="word-edit-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="word-edit-title"
+        onSubmit={handleSubmit}
+      >
+        <header>
+          <h2 id="word-edit-title">编辑单词</h2>
+          <button type="button" disabled={saving || busy} onClick={onCancel}>
+            取消
+          </button>
+        </header>
+        <label htmlFor="edit-word-text">英文单词</label>
+        <input
+          id="edit-word-text"
+          type="text"
+          value={english}
+          autoCapitalize="none"
+          autoCorrect="off"
+          onChange={(event) => {
+            setEnglish(event.target.value);
+            setMessage("");
+          }}
+        />
+        <label htmlFor="edit-word-meaning">中文释义</label>
+        <textarea
+          id="edit-word-meaning"
+          value={meaning}
+          rows={4}
+          onChange={(event) => {
+            setMeaning(event.target.value);
+            setMessage("");
+          }}
+        />
+        <footer>
+          <button
+            className="secondary-button"
+            type="button"
+            disabled={saving || busy}
+            onClick={onCancel}
+          >
+            取消
+          </button>
+          <button
+            className="primary-button compact-button"
+            type="submit"
+            disabled={saving || busy}
+          >
+            {saving || busy ? "正在保存…" : "保存"}
+          </button>
+        </footer>
+        {message && <p className="error-message" role="alert">{message}</p>}
+      </form>
+    </div>
+  );
+}
+
 function AccountPanel({
   session,
   busy,
@@ -530,6 +631,7 @@ function ListView({
   libraries,
   busy,
   saveMessage,
+  onEditWord,
   onNameChange,
   onSave,
   onAppend,
@@ -540,6 +642,7 @@ function ListView({
   const [showLibraryPicker, setShowLibraryPicker] = useState(false);
   const [targetLibraryId, setTargetLibraryId] = useState(libraries[0]?.id || "");
   const [appending, setAppending] = useState(false);
+  const [editingWord, setEditingWord] = useState(null);
 
   const handleNameChange = (event) => {
     setLibraryName(event.target.value);
@@ -632,9 +735,29 @@ function ListView({
               <h2>{item.word}</h2>
               <p>{item.meaning}</p>
             </div>
+            <button
+              className="word-edit-button"
+              type="button"
+              onClick={() => setEditingWord(item)}
+            >
+              编辑
+            </button>
           </article>
         ))}
       </section>
+      {editingWord && (
+        <WordEditModal
+          key={editingWord.id}
+          word={editingWord}
+          busy={busy}
+          onCancel={() => setEditingWord(null)}
+          onSave={async (wordId, values) => {
+            const saveError = await onEditWord(wordId, values);
+            if (!saveError) setEditingWord(null);
+            return saveError;
+          }}
+        />
+      )}
     </main>
   );
 }
@@ -1602,6 +1725,85 @@ export default function App() {
     return true;
   };
 
+  const editWord = async (wordId, values) => {
+    const trimmedWord = values.word.trim();
+    const trimmedMeaning = values.meaning.trim();
+
+    if (!trimmedWord || !trimmedMeaning) {
+      return "英文单词和中文释义都不能为空。";
+    }
+
+    const currentWords = wordsRef.current;
+    if (!currentWords.some((word) => word.id === wordId)) {
+      return "没有找到这个单词，请刷新后重试。";
+    }
+
+    const nextWords = currentWords.map((word) => (
+      word.id === wordId
+        ? { ...word, word: trimmedWord, meaning: trimmedMeaning }
+        : word
+    ));
+
+    if (!currentLibraryId) {
+      wordsRef.current = nextWords;
+      setWords(nextWords);
+      setStudyWords((items) => items.map((item) => (
+        item.id === wordId
+          ? { ...item, word: trimmedWord, meaning: trimmedMeaning }
+          : item
+      )));
+      return null;
+    }
+
+    const nextLibraries = librariesRef.current.map((library) => (
+      library.id === currentLibraryId
+        ? { ...library, words: nextWords }
+        : library
+    ));
+
+    if (isCloudMode) {
+      setCloudBusy(true);
+      try {
+        await updateCloudWord(session.user.id, currentLibraryId, wordId, {
+          word: trimmedWord,
+          meaning: trimmedMeaning,
+        });
+      } catch (cloudError) {
+        return `单词同步失败：${cloudError.message}`;
+      } finally {
+        setCloudBusy(false);
+      }
+
+      librariesRef.current = nextLibraries;
+      setLibraries(nextLibraries);
+      wordsRef.current = nextWords;
+      setWords(nextWords);
+      setStudyWords((items) => items.map((item) => (
+        item.id === wordId
+          ? { ...item, word: trimmedWord, meaning: trimmedMeaning }
+          : item
+      )));
+      return null;
+    }
+
+    try {
+      persistLibraries(nextLibraries);
+    } catch {
+      return "保存失败：浏览器本地存储空间不足或不可用。";
+    }
+
+    librariesRef.current = nextLibraries;
+    setLibraries(nextLibraries);
+    wordsRef.current = nextWords;
+    setWords(nextWords);
+    setStudyWords((items) => items.map((item) => (
+      item.id === wordId
+        ? { ...item, word: trimmedWord, meaning: trimmedMeaning }
+        : item
+    )));
+    return null;
+  };
+
   const saveProgress = (sessionIndex, wordId) => {
     if (!currentLibraryId) return;
     const currentWords = wordsRef.current;
@@ -1904,6 +2106,7 @@ export default function App() {
         libraries={libraries}
         busy={cloudBusy}
         saveMessage={saveMessage}
+        onEditWord={editWord}
         onNameChange={(name) => {
           setDraftLibraryName(name);
           setSaveMessage("");

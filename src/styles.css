@@ -710,7 +710,8 @@ p {
 
 .word-row {
   display: grid;
-  grid-template-columns: 36px 1fr;
+  grid-template-columns: 36px minmax(0, 1fr) auto;
+  align-items: start;
   gap: 10px;
   padding: 22px 0;
   border-bottom: 1px solid #f0f0f0;
@@ -737,6 +738,19 @@ p {
   color: #666;
   font-size: 13px;
   line-height: 1.6;
+}
+
+.word-edit-button {
+  padding: 5px 0 5px 10px;
+  border: 0;
+  color: #666;
+  background: transparent;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.word-edit-button:hover {
+  color: #111;
 }
 
 .mode-page {
@@ -1098,6 +1112,96 @@ p {
   text-align: center;
 }
 
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: grid;
+  place-items: center;
+  padding: 22px;
+  background: rgba(255, 255, 255, 0.86);
+}
+
+.word-edit-modal {
+  width: min(100%, 420px);
+  padding: 22px;
+  border: 1px solid #dedede;
+  border-radius: 10px;
+  background: #fff;
+  box-shadow: 0 18px 42px rgba(0, 0, 0, 0.12);
+}
+
+.word-edit-modal header,
+.word-edit-modal footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.word-edit-modal header {
+  margin-bottom: 20px;
+}
+
+.word-edit-modal h2 {
+  margin-bottom: 0;
+  font-size: 18px;
+}
+
+.word-edit-modal header button {
+  padding: 4px 0;
+  border: 0;
+  color: #666;
+  background: transparent;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.word-edit-modal label {
+  display: block;
+  margin: 14px 0 8px;
+  color: #666;
+  font-size: 13px;
+}
+
+.word-edit-modal input,
+.word-edit-modal textarea {
+  width: 100%;
+  padding: 11px 12px;
+  border: 1px solid #d8d8d8;
+  border-radius: 8px;
+  color: #171717;
+  background: #fff;
+  font: inherit;
+  font-size: 15px;
+}
+
+.word-edit-modal input {
+  height: 44px;
+}
+
+.word-edit-modal textarea {
+  min-height: 108px;
+  resize: vertical;
+  line-height: 1.5;
+}
+
+.word-edit-modal input:focus,
+.word-edit-modal textarea:focus {
+  border-color: #777;
+  outline: none;
+}
+
+.word-edit-modal footer {
+  margin-top: 18px;
+}
+
+.word-edit-modal footer .primary-button,
+.word-edit-modal footer .secondary-button {
+  width: auto;
+  min-width: 92px;
+}
+
 @keyframes word-fade {
   from {
     opacity: 0;
@@ -1127,7 +1231,7 @@ p {
   }
 
   .word-row {
-    grid-template-columns: 52px 1fr;
+    grid-template-columns: 52px minmax(0, 1fr) auto;
     padding: 24px 4px;
   }
 }
@@ -1194,6 +1298,16 @@ p {
 
   .compact-button {
     grid-column: 1 / -1;
+  }
+
+  .word-row {
+    grid-template-columns: 32px minmax(0, 1fr);
+  }
+
+  .word-edit-button {
+    grid-column: 2;
+    justify-self: start;
+    padding-left: 0;
   }
 
   .study-header {
