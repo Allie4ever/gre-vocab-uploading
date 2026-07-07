@@ -895,6 +895,7 @@ p {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  position: relative;
   gap: 16px;
   justify-self: center;
 }
@@ -903,8 +904,17 @@ p {
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  flex-wrap: wrap;
-  gap: 12px;
+}
+
+.study-order-actions {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+  transform: translate(-50%, -50%);
 }
 
 .header-button {
@@ -916,25 +926,18 @@ p {
   cursor: pointer;
 }
 
-.shuffle-toggle {
-  min-width: 44px;
-  padding: 5px 9px;
-  border: 1px solid #d8d8d8;
-  border-radius: 8px;
-}
-
-.shuffle-toggle.is-active {
-  border-color: #171717;
-  color: #fff;
-  background: #171717;
-}
-
 .header-button:hover {
   color: #111;
 }
 
-.shuffle-toggle.is-active:hover {
-  color: #fff;
+.header-button:disabled {
+  color: #c7c7c7;
+  cursor: default;
+}
+
+.order-mode-button.is-active {
+  color: #111;
+  font-weight: 650;
 }
 
 .card-stage {
@@ -1039,6 +1042,13 @@ p {
 .study-footer {
   width: min(100%, 900px);
   justify-self: center;
+}
+
+.study-edge-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 13px;
 }
 
 .progress-track {
@@ -1311,12 +1321,15 @@ p {
   }
 
   .study-header {
-    align-items: flex-start;
+    gap: 10px;
   }
 
   .study-header-actions {
-    max-width: 210px;
-    gap: 9px 12px;
+    flex: 0 0 auto;
+  }
+
+  .study-order-actions {
+    gap: 12px;
   }
 
   .header-button {

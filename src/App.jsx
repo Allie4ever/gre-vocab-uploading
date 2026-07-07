@@ -73,6 +73,21 @@ function orderWordsForStudy(words, starredWordIds, mode, shuffleState) {
   ));
 }
 
+function createVisibleShuffleOrder(words, currentOrder = []) {
+  const nextOrder = createShuffleOrder(words);
+  const wordIds = words.map((word) => word.id);
+  const referenceOrder = currentOrder.length ? currentOrder : wordIds;
+  const hasSameOrder =
+    nextOrder.length === referenceOrder.length
+    && nextOrder.every((id, index) => id === referenceOrder[index]);
+
+  if (hasSameOrder && nextOrder.length > 1) {
+    [nextOrder[0], nextOrder[1]] = [nextOrder[1], nextOrder[0]];
+  }
+
+  return nextOrder;
+}
+
 function RestoreLoadingView() {
   return (
     <main className="restore-loading" aria-live="polite">
@@ -845,12 +860,11 @@ function StudyView({
   initialIndex,
   initialRevealed,
   shuffleEnabled,
-  onToggleShuffle,
-  onReshuffle,
+  onSelectOrderMode,
+  onSelectShuffleMode,
   onProgress,
   onMeaningChange,
   onExit,
-  onRestart,
   onReset,
 }) {
   const [sessionWords, setSessionWords] = useState(words);
@@ -1098,27 +1112,25 @@ function StudyView({
         <button className="header-button" type="button" onClick={onExit}>
           ← 返回列表
         </button>
-        <div className="study-header-actions">
+        <div className="study-order-actions" aria-label="背词顺序">
           <button
-            className={`header-button shuffle-toggle${shuffleEnabled ? " is-active" : ""}`}
+            className={`header-button order-mode-button${!shuffleEnabled ? " is-active" : ""}`}
+            type="button"
+            aria-pressed={!shuffleEnabled}
+            onClick={() => onSelectOrderMode(current.id)}
+          >
+            顺序
+          </button>
+          <button
+            className={`header-button order-mode-button${shuffleEnabled ? " is-active" : ""}`}
             type="button"
             aria-pressed={shuffleEnabled}
-            onClick={() => onToggleShuffle(current.id)}
+            onClick={() => onSelectShuffleMode(current.id)}
           >
-            {shuffleEnabled ? "乱序" : "顺序"}
+            乱序
           </button>
-          {shuffleEnabled && (
-            <button
-              className="header-button"
-              type="button"
-              onClick={() => onReshuffle(current.id)}
-            >
-              重新乱序
-            </button>
-          )}
-          <button className="header-button" type="button" onClick={onRestart}>
-            重新开始
-          </button>
+        </div>
+        <div className="study-header-actions">
           <button className="header-button" type="button" onClick={onReset}>
             重新上传
           </button>
@@ -1160,6 +1172,24 @@ function StudyView({
       </section>
 
       <footer className="study-footer">
+        <div className="study-edge-actions">
+          <button
+            className="header-button"
+            type="button"
+            disabled={sessionWords.length <= 1}
+            onClick={() => goTo(0)}
+          >
+            跳到开头
+          </button>
+          <button
+            className="header-button"
+            type="button"
+            disabled={sessionWords.length <= 1}
+            onClick={() => goTo(sessionWords.length - 1)}
+          >
+            跳到结尾
+          </button>
+        </div>
         <div className="progress-track" aria-hidden="true">
           <span
             style={{
@@ -1996,16 +2026,30 @@ export default function App() {
   };
 
   const updateStudyShuffle = (currentWordId, nextEnabled, regenerate = false) => {
-    if (!currentLibraryId) return;
-
+    const currentStudyWords = orderWordsForStudy(
+      wordsRef.current,
+      starredWordIdsRef.current,
+      studyModeRef.current,
+      {
+        enabled: studyShuffleEnabledRef.current,
+        order: studyShuffleOrderRef.current,
+      },
+    );
     const nextOrder = regenerate || !studyShuffleOrderRef.current.length
-      ? createShuffleOrder(wordsRef.current)
-      : loadLibraryShuffleState(currentLibraryId, wordsRef.current).order;
+      ? createVisibleShuffleOrder(
+        wordsRef.current,
+        currentStudyWords.map((word) => word.id),
+      )
+      : currentLibraryId
+        ? loadLibraryShuffleState(currentLibraryId, wordsRef.current).order
+        : wordsRef.current.map((word) => word.id);
     const nextShuffleState = {
       enabled: nextEnabled,
       order: nextOrder,
     };
-    saveLibraryShuffleState(currentLibraryId, nextShuffleState);
+    if (currentLibraryId) {
+      saveLibraryShuffleState(currentLibraryId, nextShuffleState);
+    }
 
     const nextStudyWords = orderWordsForStudy(
       wordsRef.current,
@@ -2025,13 +2069,15 @@ export default function App() {
     setStudyInitialIndex(nextIndex);
     setStudyInitialRevealed(false);
     setStudyRunId((value) => value + 1);
-    saveAppSession({
-      screen: "review",
-      listId: currentLibraryId,
-      mode: studyModeRef.current,
-      index: nextIndex,
-      showMeaning: false,
-    });
+    if (currentLibraryId) {
+      saveAppSession({
+        screen: "review",
+        listId: currentLibraryId,
+        mode: studyModeRef.current,
+        index: nextIndex,
+        showMeaning: false,
+      });
+    }
   };
 
   if (restorePending && (!authReady || !librariesReady)) {
@@ -2049,14 +2095,10 @@ export default function App() {
         initialIndex={studyInitialIndex}
         initialRevealed={studyInitialRevealed}
         shuffleEnabled={studyShuffleEnabled}
-        onToggleShuffle={(currentWordId) => {
-          updateStudyShuffle(
-            currentWordId,
-            !studyShuffleEnabledRef.current,
-            !studyShuffleEnabledRef.current,
-          );
+        onSelectOrderMode={(currentWordId) => {
+          updateStudyShuffle(currentWordId, false, false);
         }}
-        onReshuffle={(currentWordId) => {
+        onSelectShuffleMode={(currentWordId) => {
           updateStudyShuffle(currentWordId, true, true);
         }}
         onProgress={saveProgress}
@@ -2065,7 +2107,6 @@ export default function App() {
           saveHomeSession();
           setView("list");
         }}
-        onRestart={() => startStudy(studyMode, true)}
         onReset={reset}
       />
     );
