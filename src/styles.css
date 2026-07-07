@@ -1311,13 +1311,18 @@ p {
   }
 
   .word-row {
-    grid-template-columns: 32px minmax(0, 1fr);
+    grid-template-columns: 32px minmax(0, 1fr) auto;
+    align-items: center;
   }
 
   .word-edit-button {
-    grid-column: 2;
-    justify-self: start;
-    padding-left: 0;
+    justify-self: end;
+    align-self: center;
+  }
+
+  .row-index {
+    align-self: center;
+    padding-top: 0;
   }
 
   .study-header {
