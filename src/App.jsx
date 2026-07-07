@@ -24,6 +24,12 @@ import {
   saveAppSession,
   saveHomeSession,
 } from "./appSession";
+import {
+  createShuffleOrder,
+  loadLibraryShuffleState,
+  removeLibraryShuffleState,
+  saveLibraryShuffleState,
+} from "./shuffleStorage";
 
 function formatUpdatedAt(value) {
   return new Intl.DateTimeFormat("zh-CN", {
@@ -52,6 +58,19 @@ function getWordsForMode(words, starredWordIds, mode) {
     return words.filter((word) => starredWordIds.includes(word.id));
   }
   return words;
+}
+
+function orderWordsForStudy(words, starredWordIds, mode, shuffleState) {
+  const selectedWords = getWordsForMode(words, starredWordIds, mode);
+  if (!shuffleState?.enabled) return selectedWords;
+
+  const orderIndex = new Map(
+    shuffleState.order.map((wordId, index) => [wordId, index]),
+  );
+  return [...selectedWords].sort((left, right) => (
+    (orderIndex.get(left.id) ?? Number.MAX_SAFE_INTEGER)
+    - (orderIndex.get(right.id) ?? Number.MAX_SAFE_INTEGER)
+  ));
 }
 
 function RestoreLoadingView() {
@@ -702,6 +721,9 @@ function StudyView({
   onMaster,
   initialIndex,
   initialRevealed,
+  shuffleEnabled,
+  onToggleShuffle,
+  onReshuffle,
   onProgress,
   onMeaningChange,
   onExit,
@@ -953,12 +975,31 @@ function StudyView({
         <button className="header-button" type="button" onClick={onExit}>
           ← 返回列表
         </button>
-        <button className="header-button" type="button" onClick={onRestart}>
-          重新开始
-        </button>
-        <button className="header-button" type="button" onClick={onReset}>
-          重新上传
-        </button>
+        <div className="study-header-actions">
+          <button
+            className={`header-button shuffle-toggle${shuffleEnabled ? " is-active" : ""}`}
+            type="button"
+            aria-pressed={shuffleEnabled}
+            onClick={() => onToggleShuffle(current.id)}
+          >
+            {shuffleEnabled ? "乱序" : "顺序"}
+          </button>
+          {shuffleEnabled && (
+            <button
+              className="header-button"
+              type="button"
+              onClick={() => onReshuffle(current.id)}
+            >
+              重新乱序
+            </button>
+          )}
+          <button className="header-button" type="button" onClick={onRestart}>
+            重新开始
+          </button>
+          <button className="header-button" type="button" onClick={onReset}>
+            重新上传
+          </button>
+        </div>
       </header>
 
       <section
@@ -1046,6 +1087,8 @@ export default function App() {
   const [studyInitialIndex, setStudyInitialIndex] = useState(0);
   const [studyInitialRevealed, setStudyInitialRevealed] = useState(false);
   const [studyMode, setStudyMode] = useState("all");
+  const [studyShuffleEnabled, setStudyShuffleEnabled] = useState(false);
+  const [studyShuffleOrder, setStudyShuffleOrder] = useState([]);
   const [studyRunId, setStudyRunId] = useState(0);
   const [saveMessage, setSaveMessage] = useState("");
   const [session, setSession] = useState(null);
@@ -1061,9 +1104,15 @@ export default function App() {
   const wordsRef = useRef(words);
   const starredWordIdsRef = useRef(starredWordIds);
   const librariesRef = useRef(libraries);
+  const studyModeRef = useRef(studyMode);
+  const studyShuffleEnabledRef = useRef(studyShuffleEnabled);
+  const studyShuffleOrderRef = useRef(studyShuffleOrder);
   wordsRef.current = words;
   starredWordIdsRef.current = starredWordIds;
   librariesRef.current = libraries;
+  studyModeRef.current = studyMode;
+  studyShuffleEnabledRef.current = studyShuffleEnabled;
+  studyShuffleOrderRef.current = studyShuffleOrder;
   const isCloudMode = Boolean(session && supabase);
   const cloudUserId = session?.user?.id || null;
   const localLibraries = loadLibraries();
@@ -1091,6 +1140,8 @@ export default function App() {
         setWords([]);
         setCurrentLibraryId(null);
         setStudyWords([]);
+        setStudyShuffleEnabled(false);
+        setStudyShuffleOrder([]);
         setView("upload");
       }
     });
@@ -1130,8 +1181,19 @@ export default function App() {
 
     const saved = initialAppSession.current;
     const library = libraries.find((item) => item.id === saved.listId);
+    const shuffleState = library
+      ? loadLibraryShuffleState(library.id, library.words)
+      : { enabled: false, order: [] };
+    if (library) {
+      saveLibraryShuffleState(library.id, shuffleState);
+    }
     const selectedWords = library
-      ? getWordsForMode(library.words, library.starredWordIds, saved.mode)
+      ? orderWordsForStudy(
+        library.words,
+        library.starredWordIds,
+        saved.mode,
+        shuffleState,
+      )
       : [];
 
     if (!library || !selectedWords.length || saved.index >= selectedWords.length) {
@@ -1148,6 +1210,8 @@ export default function App() {
     setStarredWordIds(library.starredWordIds);
     setStudyWords(selectedWords);
     setStudyMode(saved.mode);
+    setStudyShuffleEnabled(shuffleState.enabled);
+    setStudyShuffleOrder(shuffleState.order);
     setStudyInitialIndex(saved.index);
     setStudyInitialRevealed(saved.showMeaning);
     setStudyRunId((value) => value + 1);
@@ -1219,6 +1283,8 @@ export default function App() {
       setDraftLibraryName("");
       setStarredWordIds([]);
       setStudyWords([]);
+      setStudyShuffleEnabled(false);
+      setStudyShuffleOrder([]);
       setSaveMessage("");
       saveHomeSession();
       setView("list");
@@ -1238,6 +1304,8 @@ export default function App() {
     setDraftLibraryName("");
     setStarredWordIds([]);
     setStudyWords([]);
+    setStudyShuffleEnabled(false);
+    setStudyShuffleOrder([]);
     setSaveMessage("");
     setView("upload");
   };
@@ -1261,6 +1329,8 @@ export default function App() {
     setDraftLibraryName(library.name);
     setStarredWordIds(library.starredWordIds);
     setStudyWords([]);
+    setStudyShuffleEnabled(false);
+    setStudyShuffleOrder([]);
     setStudyInitialRevealed(false);
     setSaveMessage("");
     setView(startImmediately ? "mode" : "list");
@@ -1451,6 +1521,7 @@ export default function App() {
       setCloudBusy(true);
       try {
         await deleteCloudLibrary(session.user.id, library.id);
+        removeLibraryShuffleState(library.id);
         setLibraries((items) => items.filter((item) => item.id !== library.id));
       } catch (cloudError) {
         setAccountMessage(`云端删除失败：${cloudError.message}`);
@@ -1459,6 +1530,7 @@ export default function App() {
       }
       return;
     }
+    removeLibraryShuffleState(library.id);
     commitLibraries(libraries.filter((item) => item.id !== library.id));
   };
 
@@ -1535,10 +1607,14 @@ export default function App() {
     const currentWords = wordsRef.current;
     const wordIndex = currentWords.findIndex((word) => word.id === wordId);
     const lastIndex = wordIndex >= 0 ? wordIndex : sessionIndex;
-    const restoredWords = getWordsForMode(
+    const restoredWords = orderWordsForStudy(
       currentWords,
       starredWordIdsRef.current,
-      studyMode,
+      studyModeRef.current,
+      {
+        enabled: studyShuffleEnabledRef.current,
+        order: studyShuffleOrderRef.current,
+      },
     );
     const restoredIndex = restoredWords.findIndex((word) => word.id === wordId);
     const reviewIndex = restoredIndex >= 0 ? restoredIndex : sessionIndex;
@@ -1559,7 +1635,7 @@ export default function App() {
     saveAppSession({
       screen: "review",
       listId: currentLibraryId,
-      mode: studyMode,
+      mode: studyModeRef.current,
       index: reviewIndex,
       showMeaning: false,
     });
@@ -1576,16 +1652,20 @@ export default function App() {
 
   const saveMeaningState = (sessionIndex, wordId, showMeaning) => {
     if (!currentLibraryId) return;
-    const restoredWords = getWordsForMode(
+    const restoredWords = orderWordsForStudy(
       wordsRef.current,
       starredWordIdsRef.current,
-      studyMode,
+      studyModeRef.current,
+      {
+        enabled: studyShuffleEnabledRef.current,
+        order: studyShuffleOrderRef.current,
+      },
     );
     const restoredIndex = restoredWords.findIndex((word) => word.id === wordId);
     saveAppSession({
       screen: "review",
       listId: currentLibraryId,
-      mode: studyMode,
+      mode: studyModeRef.current,
       index: restoredIndex >= 0 ? restoredIndex : sessionIndex,
       showMeaning,
     });
@@ -1661,7 +1741,18 @@ export default function App() {
   };
 
   const startStudy = (mode, restart = false) => {
-    const selectedWords = getWordsForMode(words, starredWordIds, mode);
+    const baseShuffleState = currentLibraryId
+      ? loadLibraryShuffleState(currentLibraryId, words)
+      : { enabled: false, order: words.map((word) => word.id) };
+    if (currentLibraryId) {
+      saveLibraryShuffleState(currentLibraryId, baseShuffleState);
+    }
+    const selectedWords = orderWordsForStudy(
+      words,
+      starredWordIds,
+      mode,
+      baseShuffleState,
+    );
     if (!selectedWords.length) return;
     const currentLibrary = libraries.find(
       (library) => library.id === currentLibraryId,
@@ -1671,8 +1762,8 @@ export default function App() {
       ? 0
       : Math.max(0, Math.min(maximumBaseIndex, currentLibrary?.lastIndex || 0));
     const baseWordId = words[baseIndex]?.id;
-    let initialIndex = mode === "all"
-      ? baseIndex
+    let initialIndex = restart
+      ? 0
       : selectedWords.findIndex((word) => word.id === baseWordId);
 
     if (initialIndex < 0) {
@@ -1685,6 +1776,8 @@ export default function App() {
     if (restart) resetCurrentProgress();
     setStudyWords(selectedWords);
     setStudyMode(mode);
+    setStudyShuffleEnabled(baseShuffleState.enabled);
+    setStudyShuffleOrder(baseShuffleState.order);
     setStudyInitialIndex(initialIndex);
     setStudyInitialRevealed(false);
     setStudyRunId((value) => value + 1);
@@ -1698,6 +1791,45 @@ export default function App() {
       });
     }
     setView("study");
+  };
+
+  const updateStudyShuffle = (currentWordId, nextEnabled, regenerate = false) => {
+    if (!currentLibraryId) return;
+
+    const nextOrder = regenerate || !studyShuffleOrderRef.current.length
+      ? createShuffleOrder(wordsRef.current)
+      : loadLibraryShuffleState(currentLibraryId, wordsRef.current).order;
+    const nextShuffleState = {
+      enabled: nextEnabled,
+      order: nextOrder,
+    };
+    saveLibraryShuffleState(currentLibraryId, nextShuffleState);
+
+    const nextStudyWords = orderWordsForStudy(
+      wordsRef.current,
+      starredWordIdsRef.current,
+      studyModeRef.current,
+      nextShuffleState,
+    );
+    if (!nextStudyWords.length) return;
+
+    const nextIndex = Math.max(
+      0,
+      nextStudyWords.findIndex((word) => word.id === currentWordId),
+    );
+    setStudyWords(nextStudyWords);
+    setStudyShuffleEnabled(nextEnabled);
+    setStudyShuffleOrder(nextOrder);
+    setStudyInitialIndex(nextIndex);
+    setStudyInitialRevealed(false);
+    setStudyRunId((value) => value + 1);
+    saveAppSession({
+      screen: "review",
+      listId: currentLibraryId,
+      mode: studyModeRef.current,
+      index: nextIndex,
+      showMeaning: false,
+    });
   };
 
   if (restorePending && (!authReady || !librariesReady)) {
@@ -1714,6 +1846,17 @@ export default function App() {
         onMaster={masterWord}
         initialIndex={studyInitialIndex}
         initialRevealed={studyInitialRevealed}
+        shuffleEnabled={studyShuffleEnabled}
+        onToggleShuffle={(currentWordId) => {
+          updateStudyShuffle(
+            currentWordId,
+            !studyShuffleEnabledRef.current,
+            !studyShuffleEnabledRef.current,
+          );
+        }}
+        onReshuffle={(currentWordId) => {
+          updateStudyShuffle(currentWordId, true, true);
+        }}
         onProgress={saveProgress}
         onMeaningChange={saveMeaningState}
         onExit={() => {

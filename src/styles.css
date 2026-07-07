@@ -881,7 +881,16 @@ p {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 16px;
   justify-self: center;
+}
+
+.study-header-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 12px;
 }
 
 .header-button {
@@ -893,8 +902,25 @@ p {
   cursor: pointer;
 }
 
+.shuffle-toggle {
+  min-width: 44px;
+  padding: 5px 9px;
+  border: 1px solid #d8d8d8;
+  border-radius: 8px;
+}
+
+.shuffle-toggle.is-active {
+  border-color: #171717;
+  color: #fff;
+  background: #171717;
+}
+
 .header-button:hover {
   color: #111;
+}
+
+.shuffle-toggle.is-active:hover {
+  color: #fff;
 }
 
 .card-stage {
@@ -1168,6 +1194,19 @@ p {
 
   .compact-button {
     grid-column: 1 / -1;
+  }
+
+  .study-header {
+    align-items: flex-start;
+  }
+
+  .study-header-actions {
+    max-width: 210px;
+    gap: 9px 12px;
+  }
+
+  .header-button {
+    font-size: 13px;
   }
 }
 
